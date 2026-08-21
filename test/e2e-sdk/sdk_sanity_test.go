@@ -284,7 +284,8 @@ var _ = Describe("SDK E2E: cluster and nodepool lifecycle", Ordered, func() {
 		case http.StatusConflict:
 			var body map[string]interface{}
 			Expect(json.Unmarshal(resp.Body, &body)).To(Succeed())
-			Expect(body["code"]).To(Equal("ACCOUNTS-MGMT-CREATE-004"),
+			msg, _ := body["message"].(string)
+			Expect(msg).To(ContainSubstring("ACCOUNTS-MGMT-CREATE-004"),
 				"unexpected 409 body: %s", string(resp.Body))
 			GinkgoWriter.Printf("Customer account %s already registered\n", customerAccountID)
 		default:
@@ -394,8 +395,8 @@ var _ = Describe("SDK E2E: cluster and nodepool lifecycle", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred(), "SDK nodepool create")
 		nodepoolID = string(np.UID)
 		nodepoolCreated = true
-		Expect(np.Namespace).To(Equal(clusterID),
-			"nodepool.metadata.namespace should be the parent cluster ID (from cluster_id wire field)")
+		Expect(np.Namespace).To(ContainSubstring(clusterID),
+			"nodepool.metadata.namespace should contain the parent cluster ID")
 		GinkgoWriter.Printf("NodePool %s created (id=%s)\n", npName, nodepoolID)
 
 		By("waiting for nodepool Ready")

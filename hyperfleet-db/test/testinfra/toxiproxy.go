@@ -4,12 +4,19 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	toxiproxy "github.com/Shopify/toxiproxy/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-db/internal/schema"
 )
+
+// proxyReadyTimeout is the maximum time to wait for the Toxiproxy API port to be
+// reachable after the container starts.
+const proxyReadyTimeout = 2 * time.Minute
 
 type ProxiedDB struct {
 	DirectConnStr  string
@@ -19,6 +26,7 @@ type ProxiedDB struct {
 	network        string
 	pgContainer    string
 	toxiContainer  string
+	stopSignals    func()
 }
 
 // StartPostgresWithProxy starts a Postgres container and a Toxiproxy container
@@ -70,7 +78,7 @@ func StartPostgresWithProxy() *ProxiedDB {
 	waitForPostgresNoT(directConnStr)
 
 	// Wait for toxiproxy API
-	waitForTCP(fmt.Sprintf("localhost:%d", apiPort), 30*time.Second)
+	waitForTCP(fmt.Sprintf("localhost:%d", apiPort), proxyReadyTimeout)
 
 	// Create the proxy: toxiproxy listens on 0.0.0.0:15432 -> pgContainer:5432
 	toxiClient := toxiproxy.NewClient(fmt.Sprintf("http://localhost:%d", apiPort))
@@ -98,6 +106,22 @@ func StartPostgresWithProxy() *ProxiedDB {
 	}
 	_ = conn.Close(ctx)
 
+	// Stop containers on SIGTERM or SIGINT. SIGKILL cannot be caught, but this
+	// covers `go test -timeout` (SIGTERM) and Ctrl-C.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		if _, ok := <-sigCh; ok {
+			_ = podmanCmd("stop", toxiContainer).Run()
+			_ = podmanCmd("stop", pgContainer).Run()
+			_ = podmanCmd("network", "rm", networkName).Run()
+		}
+	}()
+	stopSignals := func() {
+		signal.Stop(sigCh)
+		close(sigCh)
+	}
+
 	return &ProxiedDB{
 		DirectConnStr:  directConnStr,
 		ProxiedConnStr: proxiedConnStr,
@@ -106,10 +130,14 @@ func StartPostgresWithProxy() *ProxiedDB {
 		network:        networkName,
 		pgContainer:    pgContainer,
 		toxiContainer:  toxiContainer,
+		stopSignals:    stopSignals,
 	}
 }
 
 func (p *ProxiedDB) Stop() {
+	if p.stopSignals != nil {
+		p.stopSignals()
+	}
 	_ = podmanCmd("stop", p.toxiContainer).Run()
 	_ = podmanCmd("stop", p.pgContainer).Run()
 	_ = podmanCmd("network", "rm", p.network).Run()
@@ -140,5 +168,5 @@ func waitForTCP(addr string, timeout time.Duration) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	panic(fmt.Sprintf("tcp %s not ready after %v", addr, timeout))
+	panic(fmt.Sprintf("tcp %s not ready after %s", addr, timeout))
 }

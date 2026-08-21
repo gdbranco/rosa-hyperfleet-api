@@ -149,9 +149,18 @@ type NodePoolInterface interface {
 
 type nodePoolClient struct {
 	inner typedclient.NodePoolInterface
+	namespace string // parent namespace passed to NodePools(namespace)
 }
 
 func (c *nodePoolClient) Create(ctx context.Context, obj *v1alpha1.NodePool, opts CreateOptions) (*v1alpha1.NodePool, error) {
+	// Propagate the parent namespace into the body so the handler can derive the
+	// parent resource ID. The SigV4 transport strips /namespaces/{value}/ from the
+	// URL before the request reaches the server, so the body is the only carrier.
+	if obj.Namespace == "" && c.namespace != "" {
+		routed := obj.DeepCopy()
+		routed.Namespace = c.namespace
+		return c.inner.Create(ctx, routed, metav1.CreateOptions{})
+	}
 	return c.inner.Create(ctx, obj, metav1.CreateOptions{})
 }
 
@@ -255,5 +264,5 @@ func (w *wrappedV1alpha1) Clusters() ClusterInterface {
 }
 
 func (w *wrappedV1alpha1) NodePools(namespace string) NodePoolInterface {
-	return &nodePoolClient{inner: w.inner.NodePools(namespace)}
+	return &nodePoolClient{inner: w.inner.NodePools(namespace), namespace: namespace}
 }
