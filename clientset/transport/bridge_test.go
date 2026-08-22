@@ -17,6 +17,7 @@ limitations under the License.
 package transport
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -30,12 +31,18 @@ func newAdapter() *Adapter {
 }
 
 func getRequest(rawURL string) *http.Request {
-	req, _ := http.NewRequest(http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
+	if err != nil {
+		panic(err)
+	}
 	return req
 }
 
 func postRequest(rawURL, body string) *http.Request {
-	req, _ := http.NewRequest(http.MethodPost, rawURL, io.NopCloser(strings.NewReader(body)))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, rawURL, io.NopCloser(strings.NewReader(body)))
+	if err != nil {
+		panic(err)
+	}
 	return req
 }
 
@@ -59,8 +66,19 @@ func TestRoundTrip_KubernetesNativeBodyPassesThrough(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req, _ := http.NewRequest(http.MethodPost, srvURL+"/api/v0/clusters", strings.NewReader(body))
-	if _, err := a.RoundTrip(req); err != nil {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srvURL+"/api/v0/clusters", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+	resp, err := a.RoundTrip(req)
+	if resp != nil {
+		defer func() {
+			if cerr := resp.Body.Close(); cerr != nil {
+				t.Errorf("resp.Body.Close: %v", cerr)
+			}
+		}()
+	}
+	if err != nil {
 		t.Fatalf("RoundTrip: %v", err)
 	}
 
@@ -80,12 +98,19 @@ func TestRoundTrip_SuccessResponsePassesThrough(t *testing.T) {
 		_, _ = w.Write([]byte(apiBody))
 	})
 
-	req, _ := http.NewRequest(http.MethodGet, srvURL+"/api/v0/clusters/uid-1", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srvURL+"/api/v0/clusters/uid-1", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 	resp, err := a.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	b, _ := io.ReadAll(resp.Body)
 	if string(b) != apiBody {
@@ -102,12 +127,19 @@ func TestRoundTrip_NativeMetav1StatusPassesThrough(t *testing.T) {
 		_, _ = w.Write([]byte(statusBody))
 	})
 
-	req, _ := http.NewRequest(http.MethodPost, srvURL+"/api/v0/clusters", strings.NewReader(`{"metadata":{"name":"x"},"spec":{}}`))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, srvURL+"/api/v0/clusters", strings.NewReader(`{"metadata":{"name":"x"},"spec":{}}`))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
 	resp, err := a.RoundTrip(req)
 	if err != nil {
 		t.Fatalf("RoundTrip: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("resp.Body.Close: %v", err)
+		}
+	}()
 
 	b, _ := io.ReadAll(resp.Body)
 	var m map[string]json.RawMessage

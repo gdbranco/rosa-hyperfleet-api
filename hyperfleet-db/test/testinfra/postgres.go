@@ -220,8 +220,18 @@ func StartPostgresForTestMain() *TestDB {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
-		if _, ok := <-sigCh; ok {
-			_ = podmanCmd("stop", container).Run()
+		sig, ok := <-sigCh
+		if !ok {
+			return // closed by stopSignals on normal teardown
+		}
+		if err := podmanCmd("stop", container).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "testinfra: stop container %s: %v\n", container, err)
+		}
+		// Re-raise so the process terminates with the correct signal after cleanup.
+		signal.Reset(sig)
+		p, err := os.FindProcess(os.Getpid())
+		if err != nil || p.Signal(sig) != nil {
+			os.Exit(1)
 		}
 	}()
 	stopSignals := func() {

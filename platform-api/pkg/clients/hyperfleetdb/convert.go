@@ -2,6 +2,7 @@ package hyperfleetdb
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,13 +29,15 @@ func MergeSpecJSON(dst any, specJSON []byte) error {
 
 // PublicToInternalCluster converts public.Cluster to internal v1alpha1.Cluster
 // for storage in FleetDB. Enriches with service-set fields (accountID, internalID).
-// Modifies pub.ObjectMeta in-place to set namespace, UID, and labels.
+// The input pub is not modified; a copy of ObjectMeta is used for the returned CRD.
 func PublicToInternalCluster(pub *public.Cluster, accountID, clusterID string) *hyperfleetv1alpha1.Cluster {
 	if pub == nil {
 		return nil
 	}
 
-	enrichMetadata(&pub.ObjectMeta, clusterID, accountID)
+	meta := pub.ObjectMeta
+	meta.Labels = maps.Clone(pub.Labels)
+	enrichMetadata(&meta, clusterID, clusterID, accountID)
 
 	enrichment := &conversion.ServiceSetFields{
 		AccountID:  accountID,
@@ -44,7 +47,7 @@ func PublicToInternalCluster(pub *public.Cluster, accountID, clusterID string) *
 
 	return &hyperfleetv1alpha1.Cluster{
 		TypeMeta:   pub.TypeMeta,
-		ObjectMeta: pub.ObjectMeta,
+		ObjectMeta: meta,
 		Spec:       *crdSpec,
 	}
 }
@@ -68,18 +71,22 @@ func InternalToPublicCluster(cr *hyperfleetv1alpha1.Cluster) *public.Cluster {
 // PublicToInternalNodePool converts public.NodePool to internal v1alpha1.NodePool
 // for storage in FleetDB. Enriches with service-set fields and syncs the top-level
 // autoRepair and labels fields into the HyperShift passthrough for internal consistency.
-// Modifies pub.ObjectMeta in-place to set namespace and labels.
+// The input pub is not modified; a copy of ObjectMeta is used for the returned CRD.
 func PublicToInternalNodePool(pub *public.NodePool, accountID, clusterID, internalPoolID string) *hyperfleetv1alpha1.NodePool {
 	if pub == nil {
 		return nil
 	}
 
-	enrichMetadata(&pub.ObjectMeta, clusterID, accountID)
+	meta := pub.ObjectMeta
+	meta.Labels = maps.Clone(pub.Labels)
+	enrichMetadata(&meta, clusterID, pub.Name, accountID)
 
 	// Capture top-level user values before Unproject, which overlays ServiceSetFields
 	// (some of which have no omitempty and can zero out fields like Labels).
+	// Clone labels so crdSpec.Labels and NodePool.NodeLabels do not share a mutable
+	// map with each other or with the original pub.Spec.Labels.
 	userAutoRepair := pub.Spec.AutoRepair
-	userLabels := pub.Spec.Labels
+	userLabels := maps.Clone(pub.Spec.Labels)
 
 	enrichment := &conversion.ServiceSetFields{
 		AccountID:      accountID,
@@ -90,16 +97,17 @@ func PublicToInternalNodePool(pub *public.NodePool, accountID, clusterID, intern
 	// ServiceSetFields.Labels has no omitempty so the overlay can zero spec.Labels.
 	// Restore the user-supplied labels so they're preserved in the stored CRD and
 	// remain readable by ProjectNodePool on the read path.
-	crdSpec.Labels = userLabels
+	crdSpec.Labels = maps.Clone(userLabels)
 
 	// Sync top-level fields into the HyperShift passthrough using the pre-Unproject
 	// values; the operator owns management.autoRepair and nodeLabels and reconciles them,
 	// but we mirror them here so the stored CRD is internally consistent from day one.
-	syncNodePoolPassthrough(crdSpec, userAutoRepair, userLabels)
+	// Clone again so crdSpec.Labels and crdSpec.NodePool.NodeLabels are independent maps.
+	syncNodePoolPassthrough(crdSpec, userAutoRepair, maps.Clone(userLabels))
 
 	return &hyperfleetv1alpha1.NodePool{
 		TypeMeta:   pub.TypeMeta,
-		ObjectMeta: pub.ObjectMeta,
+		ObjectMeta: meta,
 		Spec:       *crdSpec,
 	}
 }
@@ -120,9 +128,11 @@ func InternalToPublicNodePool(cr *hyperfleetv1alpha1.NodePool) *public.NodePool 
 // --- Helpers ---
 
 // enrichMetadata sets K8s namespace, UID, and account label on meta in-place.
-// Uses clusterNamespace() to ensure consistent "cluster-<uuid>" prefix format.
-func enrichMetadata(meta *metav1.ObjectMeta, resourceID, accountID string) {
-	meta.Namespace = clusterNamespace(resourceID)
+// clusterID drives the namespace ("cluster-<uuid>"); resourceID sets the UID
+// (the stable identifier for Get/WaitUntil). They differ for child resources
+// like NodePool where the namespace belongs to the parent cluster.
+func enrichMetadata(meta *metav1.ObjectMeta, clusterID, resourceID, accountID string) {
+	meta.Namespace = clusterNamespace(clusterID)
 	meta.UID = types.UID(resourceID)
 	if meta.Labels == nil {
 		meta.Labels = make(map[string]string)
@@ -150,7 +160,10 @@ func syncNodePoolPassthrough(spec *hyperfleetv1alpha1.NodePoolSpec, autoRepair *
 	spec.NodePool.NodeLabels = labels
 }
 
-const clusterNSPrefix = "cluster-"
+// ClusterNSPrefix is the namespace prefix for cluster resources ("cluster-<uuid>").
+const ClusterNSPrefix = "cluster-"
+
+const clusterNSPrefix = ClusterNSPrefix
 
 // clusterUUIDLen is the fixed length of a RFC 4122 UUID string (e.g. "4610b27e-8f77-4f4c-9661-c11b42e04dec").
 const clusterUUIDLen = 36
@@ -168,8 +181,9 @@ func clusterIDFromNamespace(ns string) string {
 	return strings.TrimPrefix(ns, clusterNSPrefix)
 }
 
-// ClusterIDFromNamespace extracts the cluster UUID from a K8s namespace string ("cluster-<uuid>").
-// Exported for use by handlers that need to derive the cluster ID from a NodePool's namespace.
+// ClusterIDFromNamespace extracts the cluster UUID from a K8s namespace string ("cluster-<uuid>")
+// by stripping the "cluster-" prefix. It does not validate the result; callers must verify the
+// returned string is a valid UUID before using it for database lookups.
 func ClusterIDFromNamespace(ns string) string {
 	return clusterIDFromNamespace(ns)
 }

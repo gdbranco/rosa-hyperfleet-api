@@ -234,7 +234,7 @@ func TestNodePoolRoundTrip(t *testing.T) {
 func TestEnrichMetadata_SetsFields(t *testing.T) {
 	meta := &metav1.ObjectMeta{Name: "res"}
 
-	enrichMetadata(meta, testClusterID, testAccountID)
+	enrichMetadata(meta, testClusterID, testClusterID, testAccountID)
 
 	assert.Equal(t, clusterNamespace(testClusterID), meta.Namespace)
 	assert.Equal(t, types.UID(testClusterID), meta.UID)
@@ -247,10 +247,64 @@ func TestEnrichMetadata_PreservesExistingLabels(t *testing.T) {
 		Labels: map[string]string{"app": "test"},
 	}
 
-	enrichMetadata(meta, testClusterID, testAccountID)
+	enrichMetadata(meta, testClusterID, testClusterID, testAccountID)
 
 	assert.Equal(t, "test", meta.Labels["app"])
 	assert.Equal(t, testAccountID, meta.Labels["hyperfleet.io/account-id"])
+}
+
+// --- Input mutation regression tests ---
+
+// TestPublicToInternalCluster_DoesNotMutateInput verifies that conversion leaves
+// pub.ObjectMeta and its labels unchanged. The test catches mutation because
+// enrichMetadata injects "hyperfleet.io/account-id" — if pub.Labels were modified
+// in-place that key would appear in pub.Labels after the call.
+func TestPublicToInternalCluster_DoesNotMutateInput(t *testing.T) {
+	pub := &public.Cluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testClusterName,
+			Namespace: "",
+			Labels:    map[string]string{"user-key": "user-val"},
+		},
+	}
+
+	cr := PublicToInternalCluster(pub, testAccountID, testClusterID)
+
+	// CRD must carry the enriched metadata
+	assert.Equal(t, clusterNamespace(testClusterID), cr.Namespace)
+	assert.Equal(t, testAccountID, cr.Labels["hyperfleet.io/account-id"])
+
+	// pub.ObjectMeta must be unchanged
+	assert.Equal(t, "", pub.Namespace)
+	assert.Equal(t, types.UID(""), pub.UID)
+	_, hasAccountLabel := pub.Labels["hyperfleet.io/account-id"]
+	assert.False(t, hasAccountLabel, "pub.Labels must not be mutated by conversion")
+	assert.Equal(t, "user-val", pub.Labels["user-key"])
+}
+
+// TestPublicToInternalNodePool_DoesNotMutateInput verifies that conversion leaves
+// pub.ObjectMeta and its labels unchanged.
+func TestPublicToInternalNodePool_DoesNotMutateInput(t *testing.T) {
+	pub := &public.NodePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testNodePoolName,
+			Namespace: "",
+			Labels:    map[string]string{"user-key": "user-val"},
+		},
+	}
+
+	np := PublicToInternalNodePool(pub, testAccountID, testClusterID, testNodePoolName)
+
+	// CRD must carry the enriched metadata
+	assert.Equal(t, clusterNamespace(testClusterID), np.Namespace)
+	assert.Equal(t, testAccountID, np.Labels["hyperfleet.io/account-id"])
+
+	// pub.ObjectMeta must be unchanged
+	assert.Equal(t, "", pub.Namespace)
+	assert.Equal(t, types.UID(""), pub.UID)
+	_, hasAccountLabel := pub.Labels["hyperfleet.io/account-id"]
+	assert.False(t, hasAccountLabel, "pub.Labels must not be mutated by conversion")
+	assert.Equal(t, "user-val", pub.Labels["user-key"])
 }
 
 // --- syncNodePoolPassthrough tests ---

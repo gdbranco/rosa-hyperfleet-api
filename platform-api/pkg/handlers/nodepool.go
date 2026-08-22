@@ -108,8 +108,16 @@ func (h *NodePoolHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Namespace encodes the cluster UUID as "cluster-<uuid>"
-	clusterID := hyperfleetdb.ClusterIDFromNamespace(req.Namespace)
+	// Namespace must be the exact canonical form "cluster-<uuid>" (lowercase).
+	// Parse the suffix and round-trip through uuid.String() to reject non-canonical
+	// forms (e.g. uppercase) that would pass uuid.Parse but fail GetCluster lookup.
+	clusterIDRaw := hyperfleetdb.ClusterIDFromNamespace(req.Namespace)
+	parsedUUID, err := uuid.Parse(clusterIDRaw)
+	if err != nil || req.Namespace != hyperfleetdb.ClusterNSPrefix+parsedUUID.String() {
+		writeAPIError(w, ErrNodePoolCreateInvalidNamespace, h.logger)
+		return
+	}
+	clusterID := parsedUUID.String()
 
 	if errs := h.validator.ValidateCreate(&req.Spec, featuregate.Default); errs != nil {
 		writeAPIError(w, ErrNodePoolValidation.WithErrors(errs), h.logger)
@@ -128,7 +136,9 @@ func (h *NodePoolHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("creating nodepool", "account_id", accountID, "cluster_id", clusterID, "nodepool_name", req.Name)
 
-	// NodePool ID matches its name (K8s convention: name is the stable identifier)
+	// internalPoolID is a platform-assigned UUID stored as a service-set field.
+	// The public-facing UID (used by SDK callers) is the NodePool name, set by
+	// InternalToPublicNodePool from cr.Name.
 	internalPoolID := uuid.New().String()
 	cr := hyperfleetdb.PublicToInternalNodePool(&req, accountID, clusterID, internalPoolID)
 
@@ -217,12 +227,16 @@ func (h *NodePoolHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(envelope.Spec) > 0 {
-		if err := hyperfleetdb.MergeSpecJSON(&cr.Spec, envelope.Spec); err != nil {
-			h.logger.Error("failed to merge nodepool spec", "error", err)
-			writeAPIError(w, ErrNodePoolUpdateInvalidSpec, h.logger)
-			return
-		}
+	// Reject absent spec (nil) and empty spec object ({}) — both are no-ops
+	// that indicate a malformed request rather than a deliberate partial update.
+	if len(envelope.Spec) == 0 || string(envelope.Spec) == "{}" {
+		writeAPIError(w, ErrNodePoolUpdateMissingFields, h.logger)
+		return
+	}
+	if err := hyperfleetdb.MergeSpecJSON(&cr.Spec, envelope.Spec); err != nil {
+		h.logger.Error("failed to merge nodepool spec", "error", err)
+		writeAPIError(w, ErrNodePoolUpdateInvalidSpec, h.logger)
+		return
 	}
 
 	if err := h.db.UpdateNodePool(ctx, cr); err != nil {

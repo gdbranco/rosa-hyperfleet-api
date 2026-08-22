@@ -60,6 +60,11 @@ func WriteError(w http.ResponseWriter, def APIError) error {
 		msg = def.Code + ": " + msg
 	}
 
+	httpStatus := def.HTTPStatus
+	if httpStatus < 100 || httpStatus > 599 {
+		httpStatus = http.StatusInternalServerError
+	}
+
 	status := metav1.Status{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "v1",
@@ -67,8 +72,8 @@ func WriteError(w http.ResponseWriter, def APIError) error {
 		},
 		Status:  metav1.StatusFailure,
 		Message: msg,
-		Reason:  httpStatusToReason(def.HTTPStatus),
-		Code:    int32(def.HTTPStatus),
+		Reason:  httpStatusToReason(httpStatus),
+		Code:    int32(httpStatus),
 	}
 
 	if def.Errors != nil {
@@ -81,7 +86,7 @@ func WriteError(w http.ResponseWriter, def APIError) error {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(def.HTTPStatus)
+	w.WriteHeader(httpStatus)
 	_, err = w.Write(b)
 	return err
 }
@@ -103,30 +108,44 @@ func errorsToStatusDetails(errs any) *metav1.StatusDetails {
 		Message string `json:"message"`
 	}
 	if json.Unmarshal(b, &causes) == nil && len(causes) > 0 {
-		sc := make([]metav1.StatusCause, 0, len(causes))
+		// Only accept the slice if at least one entry carries meaningful content.
+		// An array of zero-value structs (e.g. decoded from non-field-error JSON)
+		// must fall through to the fallback rather than emit empty StatusCauses.
+		hasContent := false
 		for _, c := range causes {
-			msg := c.Detail
-			if msg == "" {
-				msg = c.Message
+			if c.Field != "" || c.Detail != "" || c.Reason != "" || c.Message != "" {
+				hasContent = true
+				break
 			}
-			reason := metav1.CauseType(c.Reason)
-			if reason == "" {
-				reason = metav1.CauseTypeFieldValueInvalid
-			}
-			sc = append(sc, metav1.StatusCause{
-				Type:    reason,
-				Message: msg,
-				Field:   c.Field,
-			})
 		}
-		return &metav1.StatusDetails{Causes: sc}
+		if hasContent {
+			sc := make([]metav1.StatusCause, 0, len(causes))
+			for _, c := range causes {
+				msg := c.Detail
+				if msg == "" {
+					msg = c.Message
+				}
+				reason := metav1.CauseType(c.Reason)
+				if reason == "" {
+					reason = metav1.CauseTypeFieldValueInvalid
+				}
+				sc = append(sc, metav1.StatusCause{
+					Type:    reason,
+					Message: msg,
+					Field:   c.Field,
+				})
+			}
+			return &metav1.StatusDetails{Causes: sc}
+		}
 	}
 
-	// Fallback: embed raw JSON as a single cause message.
+	// Fallback: the errors payload is not a recognized field-error slice.
+	// Emit a fixed safe message rather than the raw JSON to avoid leaking
+	// internal details in the client-visible response.
 	return &metav1.StatusDetails{
 		Causes: []metav1.StatusCause{{
 			Type:    metav1.CauseTypeUnexpectedServerResponse,
-			Message: string(b),
+			Message: "unexpected error format",
 		}},
 	}
 }
