@@ -91,11 +91,11 @@ var _ = Describe("SDK E2E: cursor-based pagination", Ordered, func() {
 		By("creating two clusters before pagination begins")
 		clusterA, err = clusters.Create(ctx, minimalCluster("pag-a-"+suffix), platform.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred(), "creating cluster A")
-		GinkgoWriter.Printf("Cluster A created: name=%s uid=%s\n", clusterA.Name, clusterA.UID)
+		GinkgoWriter.Println("Cluster A created")
 
 		clusterB, err = clusters.Create(ctx, minimalCluster("pag-b-"+suffix), platform.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred(), "creating cluster B")
-		GinkgoWriter.Printf("Cluster B created: name=%s uid=%s\n", clusterB.Name, clusterB.UID)
+		GinkgoWriter.Println("Cluster B created")
 
 		DeferCleanup(func() {
 			cleanCtx := context.Background()
@@ -104,7 +104,7 @@ var _ = Describe("SDK E2E: cursor-based pagination", Ordered, func() {
 					continue
 				}
 				if err := clusters.Delete(cleanCtx, string(c.UID), platform.DeleteOptions{}); err != nil {
-					GinkgoWriter.Printf("WARNING: failed to delete cluster %s: %v\n", c.Name, err)
+					GinkgoWriter.Printf("WARNING: failed to delete cluster: %v\n", err)
 				}
 			}
 		})
@@ -119,13 +119,13 @@ var _ = Describe("SDK E2E: cursor-based pagination", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred(), "listing page 1")
 		Expect(page1.Items).To(HaveLen(1), "page 1 should contain exactly 1 cluster")
 		Expect(page1.Continue).ToNot(BeEmpty(), "page 1 should carry a continue token")
-		GinkgoWriter.Printf("Page 1: cluster=%s continue=%s\n", page1.Items[0].Name, page1.Continue)
+		GinkgoWriter.Printf("Page 1: %d item(s)\n", len(page1.Items))
 
 		By("creating a third cluster after the cursor was issued")
 		var createErr error
 		clusterC, createErr = clusters.Create(ctx, minimalCluster("pag-c-"+suffix), platform.CreateOptions{})
 		Expect(createErr).ToNot(HaveOccurred(), "creating cluster C between pages")
-		GinkgoWriter.Printf("Cluster C created after cursor: name=%s uid=%s\n", clusterC.Name, clusterC.UID)
+		GinkgoWriter.Println("Cluster C created after cursor")
 
 		By("listing page 2 using the continue token from page 1")
 		page2, err := clusters.List(ctx, platform.ListOptions{
@@ -134,7 +134,7 @@ var _ = Describe("SDK E2E: cursor-based pagination", Ordered, func() {
 		})
 		Expect(err).ToNot(HaveOccurred(), "listing page 2")
 		Expect(page2.Items).To(HaveLen(1), "page 2 should contain exactly 1 cluster")
-		GinkgoWriter.Printf("Page 2: cluster=%s\n", page2.Items[0].Name)
+		GinkgoWriter.Printf("Page 2: %d item(s)\n", len(page2.Items))
 
 		By("verifying both original clusters appear across the two pages")
 		seen := map[string]bool{}

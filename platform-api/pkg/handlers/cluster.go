@@ -48,7 +48,7 @@ func (h *ClusterHandler) List(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetAccountID(ctx)
 	pageOpts := pagination.ParseOptions(r)
 
-	h.logger.Info("listing clusters", "account_id", accountID, "limit", pageOpts.Limit)
+	h.logger.Info("listing clusters", "account_id", redact(accountID), "limit", pageOpts.Limit)
 
 	list, err := h.db.ListClusters(ctx, hyperfleetdb.ListOptions{
 		AccountID: accountID,

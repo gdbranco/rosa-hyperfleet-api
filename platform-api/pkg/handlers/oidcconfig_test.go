@@ -41,7 +41,7 @@ func testManagedOidcConfigSpec(accountID string) hyperfleetv1alpha1.OidcConfigSp
 }
 
 func TestOidcConfigHandler_List_Success(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		testOidcConfigCR("oidc-1", testAccountID, testManagedOidcConfigSpec(testAccountID)),
 		testOidcConfigCR("oidc-2", testAccountID, testManagedOidcConfigSpec(testAccountID)),
@@ -72,7 +72,7 @@ func TestOidcConfigHandler_List_Success(t *testing.T) {
 }
 
 func TestOidcConfigHandler_List_Empty(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -100,7 +100,7 @@ func TestOidcConfigHandler_List_Empty(t *testing.T) {
 }
 
 func TestOidcConfigHandler_List_Pagination(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		testOidcConfigCR("oidc-1", testAccountID, testManagedOidcConfigSpec(testAccountID)),
 		testOidcConfigCR("oidc-2", testAccountID, testManagedOidcConfigSpec(testAccountID)),
@@ -146,7 +146,7 @@ func TestOidcConfigHandler_List_Pagination(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Create_Success(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -181,7 +181,7 @@ func TestOidcConfigHandler_Create_Success(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Create_ManagedIgnoresClientIssuerUrl(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -222,7 +222,7 @@ func TestOidcConfigHandler_Create_ManagedIgnoresClientIssuerUrl(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Create_InvalidJSON(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -256,7 +256,7 @@ func TestOidcConfigHandler_Create_MissingFields(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scheme := newTestScheme()
+			scheme := newTestScheme(t)
 			fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 			handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -282,7 +282,7 @@ func TestOidcConfigHandler_Create_MissingFields(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Create_InvalidType(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -357,7 +357,7 @@ func TestOidcConfigHandler_Create_InvalidFieldsForType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scheme := newTestScheme()
+			scheme := newTestScheme(t)
 			fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 			logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 			handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -383,7 +383,7 @@ func TestOidcConfigHandler_Create_InvalidFieldsForType(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Create_UnmanagedSuccess(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -417,7 +417,7 @@ func TestOidcConfigHandler_Create_UnmanagedSuccess(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Get_Success(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		testOidcConfigCR("oidc-123", testAccountID, testManagedOidcConfigSpec(testAccountID)),
 	).Build()
@@ -444,7 +444,7 @@ func TestOidcConfigHandler_Get_Success(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Get_NotFound(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
@@ -469,7 +469,7 @@ func TestOidcConfigHandler_Get_NotFound(t *testing.T) {
 
 func TestOidcConfigHandler_Get_WrongAccount(t *testing.T) {
 	otherAccount := "999999999999"
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		testOidcConfigCR("oidc-123", otherAccount, testManagedOidcConfigSpec(otherAccount)),
 	).Build()
@@ -489,7 +489,7 @@ func TestOidcConfigHandler_Get_WrongAccount(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Delete_Success(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		testOidcConfigCR("oidc-123", testAccountID, testManagedOidcConfigSpec(testAccountID)),
 	).Build()
@@ -515,7 +515,7 @@ func TestOidcConfigHandler_Delete_Success(t *testing.T) {
 }
 
 func TestOidcConfigHandler_Delete_NotFound(t *testing.T) {
-	scheme := newTestScheme()
+	scheme := newTestScheme(t)
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	handler := NewOidcConfigHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)

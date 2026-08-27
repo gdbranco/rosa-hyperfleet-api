@@ -31,8 +31,7 @@ func testNodePoolCR(npName, clusterNamespace, accountID string) *hyperfleetv1alp
 
 func newTestNodePoolHandler(t *testing.T, objects ...client.Object) *NodePoolHandler {
 	t.Helper()
-	scheme := newTestScheme()
-	fc := newIndexedFakeBuilder(scheme).WithObjects(objects...).Build()
+	fc := newIndexedFakeBuilder(t).WithObjects(objects...).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	return NewNodePoolHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -92,7 +93,9 @@ func (c *pgClient) List(ctx context.Context, list client.ObjectList, opts ...cli
 	}
 	// Request one extra item so we can tell whether a next page exists without
 	// issuing a second COUNT query. The extra item is never exposed to callers.
-	if filter != nil && filter.Limit > 0 {
+	// Skip the increment when Limit is already math.MaxInt64 to avoid wrapping
+	// to a negative value — no real result set can exceed that count anyway.
+	if filter != nil && filter.Limit > 0 && filter.Limit < math.MaxInt64 {
 		filter.Limit++
 	}
 
@@ -653,17 +656,25 @@ func buildListFilter(listOpts client.ListOptions) (*reader.ListFilter, error) {
 		f.WhereArgs = append(f.WhereArgs, args...)
 	}
 
-	if listOpts.Limit > 0 {
-		f.Limit = listOpts.Limit
+	if listOpts.Continue != "" {
 		ct, err := decodeContinue(listOpts.Continue)
 		if err != nil {
 			return nil, err
 		}
+		if ct.TxidStamp == 0 {
+			return nil, fmt.Errorf("%w: cursor position must be non-zero", ErrInvalidContinueToken)
+		}
+		if ct.TxidStampMax != 0 && ct.TxidStampMax < ct.TxidStamp {
+			return nil, fmt.Errorf("%w: watermark must be >= cursor position", ErrInvalidContinueToken)
+		}
 		f.TxidStampCursor = ct.TxidStamp
 		f.TxidStampMax = ct.TxidStampMax
 	}
+	if listOpts.Limit > 0 {
+		f.Limit = listOpts.Limit
+	}
 
-	if f.Limit == 0 && len(f.WhereClauses) == 0 {
+	if f.Limit == 0 && len(f.WhereClauses) == 0 && f.TxidStampCursor == 0 && f.TxidStampMax == 0 {
 		return nil, nil
 	}
 	return &f, nil

@@ -115,7 +115,8 @@ func (c *Client) FindClusterByName(ctx context.Context, accountID, name string) 
 // ListClusters lists Clusters for the given account. The list's metadata.continue
 // is set to the platform-scoped cursor token (empty when no further pages exist).
 func (c *Client) ListClusters(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.ClusterList, error) {
-	innerCursor, err := pagination.DecodeContinue(opts.Continue, opts.AccountID)
+	scope := pagination.TokenScope{AccountID: opts.AccountID, Collection: clusterGR.Resource}
+	innerCursor, err := pagination.DecodeContinue(opts.Continue, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +129,7 @@ func (c *Client) ListClusters(ctx context.Context, opts ListOptions) (*hyperflee
 	if err := c.client.List(ctx, &list, &listOpts); err != nil {
 		return nil, err
 	}
-	list.Continue = pagination.EncodeContinue(list.Continue, opts.AccountID)
+	list.Continue = pagination.EncodeContinue(list.Continue, scope)
 	return &list, nil
 }
 
@@ -174,7 +175,8 @@ func (c *Client) GetNodePool(ctx context.Context, accountID, nodepoolName string
 // set, results are scoped to that cluster's namespace. The list's
 // metadata.continue is set to the platform-scoped cursor token.
 func (c *Client) ListNodePools(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.NodePoolList, error) {
-	innerCursor, err := pagination.DecodeContinue(opts.Continue, opts.AccountID)
+	scope := pagination.TokenScope{AccountID: opts.AccountID, Collection: nodePoolGR.Resource, ClusterID: opts.ClusterID}
+	innerCursor, err := pagination.DecodeContinue(opts.Continue, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +192,7 @@ func (c *Client) ListNodePools(ctx context.Context, opts ListOptions) (*hyperfle
 	if err := c.client.List(ctx, &list, &listOpts); err != nil {
 		return nil, err
 	}
-	list.Continue = pagination.EncodeContinue(list.Continue, opts.AccountID)
+	list.Continue = pagination.EncodeContinue(list.Continue, scope)
 	return &list, nil
 }
 
@@ -295,7 +297,8 @@ func (c *Client) GetOidcConfig(ctx context.Context, accountID, configID string) 
 // ListOidcConfigs lists OidcConfigs for the given account. The list's
 // metadata.continue is set to the platform-scoped cursor token.
 func (c *Client) ListOidcConfigs(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.OidcConfigList, error) {
-	innerCursor, err := pagination.DecodeContinue(opts.Continue, opts.AccountID)
+	scope := pagination.TokenScope{AccountID: opts.AccountID, Collection: oidcConfigGR.Resource}
+	innerCursor, err := pagination.DecodeContinue(opts.Continue, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +311,7 @@ func (c *Client) ListOidcConfigs(ctx context.Context, opts ListOptions) (*hyperf
 	if err := c.client.List(ctx, &list, &listOpts); err != nil {
 		return nil, err
 	}
-	list.Continue = pagination.EncodeContinue(list.Continue, opts.AccountID)
+	list.Continue = pagination.EncodeContinue(list.Continue, scope)
 	return &list, nil
 }
 
@@ -345,8 +348,9 @@ func setAccountLabel(obj client.Object, accountID string) {
 }
 
 var (
-	clusterGR  = hyperfleetv1alpha1.GroupVersion.WithResource("clusters").GroupResource()
-	nodePoolGR = hyperfleetv1alpha1.GroupVersion.WithResource("nodepools").GroupResource()
+	clusterGR    = hyperfleetv1alpha1.GroupVersion.WithResource("clusters").GroupResource()
+	nodePoolGR   = hyperfleetv1alpha1.GroupVersion.WithResource("nodepools").GroupResource()
+	oidcConfigGR = hyperfleetv1alpha1.GroupVersion.WithResource("oidcconfigs").GroupResource()
 )
 
 const accountNSPrefix = "account-"

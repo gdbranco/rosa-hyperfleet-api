@@ -40,7 +40,7 @@ func (h *OidcConfigHandler) List(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetAccountID(ctx)
 	pageOpts := pagination.ParseOptions(r)
 
-	h.logger.Info("listing oidc configs", "account_id", accountID, "limit", pageOpts.Limit)
+	h.logger.Info("listing oidc configs", "account_id", redact(accountID), "limit", pageOpts.Limit)
 
 	list, err := h.db.ListOidcConfigs(ctx, hyperfleetdb.ListOptions{
 		AccountID: accountID,
@@ -51,7 +51,7 @@ func (h *OidcConfigHandler) List(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, ErrOidcConfigListInvalidCursor, h.logger)
 			return
 		}
-		h.logger.Error("failed to list oidc configs", "error", err, "account_id", accountID)
+		h.logger.Error("failed to list oidc configs", "error", err, "account_id", redact(accountID))
 		writeAPIError(w, ErrOidcConfigList, h.logger)
 		return
 	}

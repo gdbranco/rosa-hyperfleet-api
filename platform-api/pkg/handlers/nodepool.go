@@ -39,7 +39,7 @@ func (h *NodePoolHandler) List(w http.ResponseWriter, r *http.Request) {
 	clusterID := r.URL.Query().Get("clusterId")
 	pageOpts := pagination.ParseOptions(r)
 
-	h.logger.Info("listing nodepools", "account_id", accountID, "limit", pageOpts.Limit, "cluster_id", clusterID)
+	h.logger.Info("listing nodepools", "account_id", redact(accountID), "limit", pageOpts.Limit, "cluster_id", redact(clusterID))
 
 	list, err := h.db.ListNodePools(ctx, hyperfleetdb.ListOptions{
 		AccountID: accountID,

@@ -3,6 +3,7 @@ package hyperfleetdb
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -100,7 +101,7 @@ func (c *pgCache) List(ctx context.Context, list client.ObjectList, opts ...clie
 	if err != nil {
 		return err
 	}
-	if filter != nil && filter.Limit > 0 {
+	if filter != nil && filter.Limit > 0 && filter.Limit < math.MaxInt64 {
 		filter.Limit++
 	}
 

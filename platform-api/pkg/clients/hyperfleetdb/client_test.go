@@ -12,7 +12,7 @@ import (
 )
 
 func TestClient_CreateCluster_SetsAccountLabel(t *testing.T) {
-	fc := testFakeBuilder().Build()
+	fc := testFakeBuilder(t).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := NewClientFrom(fc, logger)
 
@@ -33,7 +33,7 @@ func TestClient_CreateCluster_SetsAccountLabel(t *testing.T) {
 }
 
 func TestClient_CreateNodePool_SetsNamespaceAndLabel(t *testing.T) {
-	fc := testFakeBuilder().Build()
+	fc := testFakeBuilder(t).Build()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := NewClientFrom(fc, logger)
 
@@ -55,7 +55,7 @@ func TestClient_CreateNodePool_SetsNamespaceAndLabel(t *testing.T) {
 }
 
 func TestClient_ListClusters_FiltersByAccount(t *testing.T) {
-	fc := testFakeBuilder().WithObjects(
+	fc := testFakeBuilder(t).WithObjects(
 		&hyperfleetv1alpha1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "my-cluster", Namespace: "cluster-uuid-1",
@@ -85,7 +85,7 @@ func TestClient_ListClusters_FiltersByAccount(t *testing.T) {
 }
 
 func TestClient_GetCluster_ScopedToAccount(t *testing.T) {
-	fc := testFakeBuilder().WithObjects(
+	fc := testFakeBuilder(t).WithObjects(
 		&hyperfleetv1alpha1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "my-cluster", Namespace: "cluster-uuid-1",

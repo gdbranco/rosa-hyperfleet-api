@@ -4,8 +4,8 @@ package handlers
 
 import (
 	"context"
+	"testing"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -13,13 +13,11 @@ import (
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/clients/hyperfleetdb"
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/middleware"
+	testutil "github.com/openshift-online/rosa-hyperfleet-api/platform-api/test/util"
 )
 
-func newTestScheme() *runtime.Scheme {
-	s := runtime.NewScheme()
-	_ = corev1.AddToScheme(s)
-	_ = hyperfleetv1alpha1.AddToScheme(s)
-	return s
+func newTestScheme(t testing.TB) *runtime.Scheme {
+	return testutil.NewScheme(t)
 }
 
 func testContext(accountID string) context.Context {
@@ -29,9 +27,6 @@ func testContext(accountID string) context.Context {
 	return ctx
 }
 
-// newIndexedFakeBuilder returns a fake client builder with field indexes
-// matching the MatchingFields selectors used in production list queries.
-// The real pgclient translates these to SQL; the fake client needs explicit indexers.
 // metadataContinue extracts the metadata.continue token from a decoded JSON
 // list response. Returns "" when no next page exists.
 func metadataContinue(result map[string]any) string {
@@ -40,7 +35,12 @@ func metadataContinue(result map[string]any) string {
 	return token
 }
 
-func newIndexedFakeBuilder(scheme *runtime.Scheme) *fake.ClientBuilder {
+// newIndexedFakeBuilder returns a fake client builder with field indexes
+// matching the MatchingFields selectors used in production list queries.
+// The real pgclient translates these to SQL; the fake client needs explicit indexers.
+func newIndexedFakeBuilder(t testing.TB) *fake.ClientBuilder {
+	t.Helper()
+	scheme := newTestScheme(t)
 	accountFieldKey := "metadata.labels." + hyperfleetdb.AccountIDLabel
 	accountIndexer := func(o client.Object) []string {
 		if v, ok := o.GetLabels()[hyperfleetdb.AccountIDLabel]; ok {

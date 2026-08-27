@@ -48,21 +48,33 @@ type Response[T any] struct {
 	Limit           int `json:"limit"`
 }
 
-// platformToken wraps the hyperfleet-db continue token with an account ID so
-// cross-account cursor reuse is caught at the platform-api layer.
+// platformToken wraps the hyperfleet-db continue token with the query scope so
+// that tokens cannot be replayed against a different collection or cluster.
+// ClusterID is empty for non-cluster-scoped collections (clusters, oidcconfigs).
 type platformToken struct {
-	Cursor    string `json:"cursor"`
-	AccountID string `json:"account_id"`
+	Cursor     string `json:"cursor"`
+	AccountID  string `json:"account_id"`
+	Collection string `json:"collection"`
+	ClusterID  string `json:"cluster_id,omitempty"`
+}
+
+// TokenScope identifies the collection and optional cluster scope that a
+// continue token was issued for. Passing a token to a mismatched scope is
+// rejected with ErrInvalidContinueToken.
+type TokenScope struct {
+	AccountID  string
+	Collection string
+	ClusterID  string // empty for collections not scoped to a cluster
 }
 
 // ErrInvalidContinueToken is returned when the continue token provided by a
-// caller is malformed or belongs to a different account.
+// caller is malformed or does not match the current query scope.
 var ErrInvalidContinueToken = errors.New("invalid continue token")
 
-// DecodeContinue validates the platform-level continue token for the given
-// account and returns the inner hyperfleet-db cursor. An empty token is valid
-// and returns an empty inner cursor (start from beginning).
-func DecodeContinue(token, accountID string) (string, error) {
+// DecodeContinue validates the platform-level continue token against the
+// expected scope, then returns the inner hyperfleet-db cursor.
+// An empty token is valid and signals the first page.
+func DecodeContinue(token string, scope TokenScope) (string, error) {
 	if token == "" {
 		return "", nil
 	}
@@ -74,19 +86,30 @@ func DecodeContinue(token, accountID string) (string, error) {
 	if err := json.Unmarshal(data, &pt); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
 	}
-	if pt.AccountID != accountID {
+	if pt.AccountID != scope.AccountID {
 		return "", fmt.Errorf("%w: token account mismatch", ErrInvalidContinueToken)
+	}
+	if pt.Collection != scope.Collection {
+		return "", fmt.Errorf("%w: token collection mismatch", ErrInvalidContinueToken)
+	}
+	if pt.ClusterID != scope.ClusterID {
+		return "", fmt.Errorf("%w: token scope mismatch", ErrInvalidContinueToken)
 	}
 	return pt.Cursor, nil
 }
 
-// EncodeContinue wraps a hyperfleet-db cursor with the account ID to produce
+// EncodeContinue wraps a hyperfleet-db cursor with the query scope to produce
 // the platform-level continue token returned to callers.
-func EncodeContinue(cursor, accountID string) string {
+func EncodeContinue(cursor string, scope TokenScope) string {
 	if cursor == "" {
 		return ""
 	}
-	data, _ := json.Marshal(platformToken{Cursor: cursor, AccountID: accountID})
+	data, _ := json.Marshal(platformToken{
+		Cursor:     cursor,
+		AccountID:  scope.AccountID,
+		Collection: scope.Collection,
+		ClusterID:  scope.ClusterID,
+	})
 	return base64.StdEncoding.EncodeToString(data)
 }
 
