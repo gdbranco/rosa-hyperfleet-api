@@ -50,7 +50,7 @@ func (h *ClusterHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("listing clusters", "account_id", accountID, "limit", pageOpts.Limit)
 
-	list, nextContinue, err := h.db.ListClusters(ctx, hyperfleetdb.ListOptions{
+	list, err := h.db.ListClusters(ctx, hyperfleetdb.ListOptions{
 		AccountID: accountID,
 		Options:   pageOpts,
 	})
@@ -70,10 +70,9 @@ func (h *ClusterHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := api.Write(w, http.StatusOK, pagination.Response[*public.Cluster]{
+		ListMeta: metav1.ListMeta{Continue: list.Continue},
 		Items:    clusters,
 		Limit:    pageOpts.Limit,
-		HasMore:  nextContinue != "",
-		Continue: nextContinue,
 	}); err != nil {
 		h.logger.Error("failed to write response", "error", err)
 	}

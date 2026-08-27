@@ -112,12 +112,12 @@ func (c *Client) FindClusterByName(ctx context.Context, accountID, name string) 
 	return &list.Items[0], nil
 }
 
-// ListClusters lists Clusters for the given account. The returned string is the
-// next continue token (empty = last page).
-func (c *Client) ListClusters(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.ClusterList, string, error) {
+// ListClusters lists Clusters for the given account. The list's metadata.continue
+// is set to the platform-scoped cursor token (empty when no further pages exist).
+func (c *Client) ListClusters(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.ClusterList, error) {
 	innerCursor, err := pagination.DecodeContinue(opts.Continue, opts.AccountID)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	listOpts := client.ListOptions{
 		FieldSelector: fields.SelectorFromSet(fields.Set{"metadata.labels." + accountIDLabel: opts.AccountID}),
@@ -126,9 +126,10 @@ func (c *Client) ListClusters(ctx context.Context, opts ListOptions) (*hyperflee
 	}
 	var list hyperfleetv1alpha1.ClusterList
 	if err := c.client.List(ctx, &list, &listOpts); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return &list, pagination.EncodeContinue(list.Continue, opts.AccountID), nil
+	list.Continue = pagination.EncodeContinue(list.Continue, opts.AccountID)
+	return &list, nil
 }
 
 // UpdateCluster updates the spec of an existing Cluster via CAS.
@@ -170,12 +171,12 @@ func (c *Client) GetNodePool(ctx context.Context, accountID, nodepoolName string
 }
 
 // ListNodePools lists NodePools for the given account. If opts.ClusterID is
-// set, results are scoped to that cluster's namespace. The returned string is
-// the next continue token (empty = last page).
-func (c *Client) ListNodePools(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.NodePoolList, string, error) {
+// set, results are scoped to that cluster's namespace. The list's
+// metadata.continue is set to the platform-scoped cursor token.
+func (c *Client) ListNodePools(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.NodePoolList, error) {
 	innerCursor, err := pagination.DecodeContinue(opts.Continue, opts.AccountID)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	listOpts := client.ListOptions{
 		FieldSelector: fields.SelectorFromSet(fields.Set{"metadata.labels." + accountIDLabel: opts.AccountID}),
@@ -187,9 +188,10 @@ func (c *Client) ListNodePools(ctx context.Context, opts ListOptions) (*hyperfle
 	}
 	var list hyperfleetv1alpha1.NodePoolList
 	if err := c.client.List(ctx, &list, &listOpts); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return &list, pagination.EncodeContinue(list.Continue, opts.AccountID), nil
+	list.Continue = pagination.EncodeContinue(list.Continue, opts.AccountID)
+	return &list, nil
 }
 
 // UpdateNodePool updates the spec of an existing NodePool via CAS.
@@ -290,12 +292,12 @@ func (c *Client) GetOidcConfig(ctx context.Context, accountID, configID string) 
 	return &oc, nil
 }
 
-// ListOidcConfigs lists OidcConfigs for the given account. The returned string
-// is the next continue token (empty = last page).
-func (c *Client) ListOidcConfigs(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.OidcConfigList, string, error) {
+// ListOidcConfigs lists OidcConfigs for the given account. The list's
+// metadata.continue is set to the platform-scoped cursor token.
+func (c *Client) ListOidcConfigs(ctx context.Context, opts ListOptions) (*hyperfleetv1alpha1.OidcConfigList, error) {
 	innerCursor, err := pagination.DecodeContinue(opts.Continue, opts.AccountID)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	listOpts := client.ListOptions{
 		Namespace: accountNamespace(opts.AccountID),
@@ -304,9 +306,10 @@ func (c *Client) ListOidcConfigs(ctx context.Context, opts ListOptions) (*hyperf
 	}
 	var list hyperfleetv1alpha1.OidcConfigList
 	if err := c.client.List(ctx, &list, &listOpts); err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	return &list, pagination.EncodeContinue(list.Continue, opts.AccountID), nil
+	list.Continue = pagination.EncodeContinue(list.Continue, opts.AccountID)
+	return &list, nil
 }
 
 // DeleteOidcConfig deletes an OidcConfig by accountID and configID.

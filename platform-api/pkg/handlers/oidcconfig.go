@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
 	public "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
@@ -41,7 +42,7 @@ func (h *OidcConfigHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info("listing oidc configs", "account_id", accountID, "limit", pageOpts.Limit)
 
-	list, nextContinue, err := h.db.ListOidcConfigs(ctx, hyperfleetdb.ListOptions{
+	list, err := h.db.ListOidcConfigs(ctx, hyperfleetdb.ListOptions{
 		AccountID: accountID,
 		Options:   pageOpts,
 	})
@@ -61,10 +62,9 @@ func (h *OidcConfigHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := api.Write(w, http.StatusOK, pagination.Response[*public.OidcConfig]{
+		ListMeta: metav1.ListMeta{Continue: list.Continue},
 		Items:    configs,
 		Limit:    pageOpts.Limit,
-		HasMore:  nextContinue != "",
-		Continue: nextContinue,
 	}); err != nil {
 		h.logger.Error("failed to write response", "error", err)
 	}

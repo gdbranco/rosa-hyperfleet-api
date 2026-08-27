@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	hyperfleetdb "github.com/openshift-online/rosa-hyperfleet-api/hyperfleet-db"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -38,11 +39,13 @@ func ParseOptions(r *http.Request) Options {
 }
 
 // Response is the standard envelope for all paginated list endpoints.
+// The continue token is placed in metadata.continue following K8s conventions
+// so the generated typed clientset reads it from ListMeta.Continue.
+// Callers determine whether more pages exist by checking metadata.continue != "".
 type Response[T any] struct {
-	Items    []T    `json:"items"`
-	Limit    int    `json:"limit"`
-	HasMore  bool   `json:"has_more"`
-	Continue string `json:"continue,omitempty"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []T `json:"items"`
+	Limit           int `json:"limit"`
 }
 
 // platformToken wraps the hyperfleet-db continue token with an account ID so

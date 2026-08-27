@@ -32,6 +32,14 @@ func testContext(accountID string) context.Context {
 // newIndexedFakeBuilder returns a fake client builder with field indexes
 // matching the MatchingFields selectors used in production list queries.
 // The real pgclient translates these to SQL; the fake client needs explicit indexers.
+// metadataContinue extracts the metadata.continue token from a decoded JSON
+// list response. Returns "" when no next page exists.
+func metadataContinue(result map[string]any) string {
+	meta, _ := result["metadata"].(map[string]any)
+	token, _ := meta["continue"].(string)
+	return token
+}
+
 func newIndexedFakeBuilder(scheme *runtime.Scheme) *fake.ClientBuilder {
 	accountFieldKey := "metadata.labels." + hyperfleetdb.AccountIDLabel
 	accountIndexer := func(o client.Object) []string {

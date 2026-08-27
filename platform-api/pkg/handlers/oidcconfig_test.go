@@ -66,8 +66,8 @@ func TestOidcConfigHandler_List_Success(t *testing.T) {
 	if len(items) != 2 {
 		t.Errorf("expected 2 items, got %d", len(items))
 	}
-	if result["has_more"].(bool) {
-		t.Error("expected has_more=false")
+	if metadataContinue(result) != "" {
+		t.Error("expected no continue token on last page")
 	}
 }
 
@@ -94,8 +94,8 @@ func TestOidcConfigHandler_List_Empty(t *testing.T) {
 	if len(items) != 0 {
 		t.Errorf("expected 0 items, got %d", len(items))
 	}
-	if result["has_more"].(bool) {
-		t.Error("expected has_more=false for empty list")
+	if metadataContinue(result) != "" {
+		t.Error("expected no continue token on last page")
 	}
 }
 
@@ -125,8 +125,8 @@ func TestOidcConfigHandler_List_Pagination(t *testing.T) {
 		if _, ok := result["total"]; ok {
 			t.Error("response must not include 'total'")
 		}
-		if _, ok := result["has_more"]; !ok {
-			t.Error("response must include 'has_more'")
+		if _, ok := result["metadata"]; !ok {
+			t.Error("response must include 'metadata'")
 		}
 		if result["limit"] == nil {
 			t.Error("response must include 'limit'")

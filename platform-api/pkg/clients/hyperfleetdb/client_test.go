@@ -72,7 +72,7 @@ func TestClient_ListClusters_FiltersByAccount(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := NewClientFrom(fc, logger)
 
-	list, _, err := c.ListClusters(context.Background(), testListOpts("acct-1"))
+	list, err := c.ListClusters(context.Background(), testListOpts("acct-1"))
 	if err != nil {
 		t.Fatalf("ListClusters: %v", err)
 	}
