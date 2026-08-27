@@ -9,7 +9,12 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 )
 
-var validPathSegment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+var (
+	validPathSegment = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	// validLabelKey accepts the full Kubernetes label key format: an optional
+	// DNS subdomain prefix (e.g. "hyperfleet.io/") followed by the key name.
+	validLabelKey = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._/\-]*$`)
+)
 
 func buildFieldSelectorFilter(sel fields.Selector, startParam int) (clauses []string, args []any, err error) {
 	if sel == nil || sel.Empty() {
@@ -75,11 +80,15 @@ func fieldPathToSQL(field string) (string, error) {
 }
 
 func metadataFieldToSQL(field string) (string, error) {
-	switch field {
-	case "name":
-		return "name", nil
-	case "namespace":
-		return "namespace", nil
+	switch {
+	case field == "name", field == "namespace":
+		return field, nil
+	case strings.HasPrefix(field, "labels."):
+		labelKey := strings.TrimPrefix(field, "labels.")
+		if !validLabelKey.MatchString(labelKey) {
+			return "", fmt.Errorf("pgruntime: invalid label key %q in field selector", labelKey)
+		}
+		return fmt.Sprintf("metadata->'labels'->>'%s'", labelKey), nil
 	default:
 		return jsonbPathToSQL("metadata", field)
 	}

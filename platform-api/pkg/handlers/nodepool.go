@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -15,6 +14,7 @@ import (
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/api"
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/clients/hyperfleetdb"
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/middleware"
+	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/pagination"
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/validation"
 )
 
@@ -35,30 +35,21 @@ func NewNodePoolHandler(db *hyperfleetdb.Client, logger *slog.Logger) *NodePoolH
 func (h *NodePoolHandler) List(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	accountID := middleware.GetAccountID(ctx)
-
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
 	clusterID := r.URL.Query().Get("clusterId")
+	pageOpts := pagination.ParseOptions(r)
 
-	limit := 50
-	offset := 0
+	h.logger.Info("listing nodepools", "account_id", accountID, "limit", pageOpts.Limit, "cluster_id", clusterID)
 
-	if limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-			limit = l
-		}
-	}
-
-	if offsetStr != "" {
-		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
-			offset = o
-		}
-	}
-
-	h.logger.Info("listing nodepools", "account_id", accountID, "limit", limit, "offset", offset, "cluster_id", clusterID)
-
-	list, err := h.db.ListNodePools(ctx, accountID, clusterID)
+	list, nextContinue, err := h.db.ListNodePools(ctx, hyperfleetdb.ListOptions{
+		AccountID: accountID,
+		ClusterID: clusterID,
+		Options:   pageOpts,
+	})
 	if err != nil {
+		if pagination.IsInvalidCursor(err) {
+			writeAPIError(w, ErrNodePoolListInvalidCursor, h.logger)
+			return
+		}
 		h.logger.Error("failed to list nodepools", "error", err, "account_id", accountID)
 		writeAPIError(w, ErrNodePoolList, h.logger)
 		return
@@ -69,23 +60,12 @@ func (h *NodePoolHandler) List(w http.ResponseWriter, r *http.Request) {
 		nodepools = append(nodepools, hyperfleetdb.InternalToPublicNodePool(&list.Items[i]))
 	}
 
-	total := len(nodepools)
-
-	if offset >= len(nodepools) {
-		nodepools = nil
-	} else {
-		end := min(offset+limit, len(nodepools))
-		nodepools = nodepools[offset:end]
-	}
-
-	response := map[string]any{
-		"items":  nodepools,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	}
-
-	if err := api.Write(w, http.StatusOK, response); err != nil {
+	if err := api.Write(w, http.StatusOK, pagination.Response[*public.NodePool]{
+		Items:    nodepools,
+		Limit:    pageOpts.Limit,
+		HasMore:  nextContinue != "",
+		Continue: nextContinue,
+	}); err != nil {
 		h.logger.Error("failed to write response", "error", err)
 	}
 }

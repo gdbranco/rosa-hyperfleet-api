@@ -29,6 +29,21 @@ func TestFieldPathToSQL(t *testing.T) {
 		})
 	}
 
+	labelCases := []struct {
+		field, want string
+	}{
+		{"metadata.labels.app", "metadata->'labels'->>'app'"},
+		{"metadata.labels.hyperfleet.io/account-id", "metadata->'labels'->>'hyperfleet.io/account-id'"},
+		{"metadata.labels.my-label", "metadata->'labels'->>'my-label'"},
+	}
+	for _, tt := range labelCases {
+		t.Run(tt.field, func(t *testing.T) {
+			col, err := fieldPathToSQL(tt.field)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, col)
+		})
+	}
+
 	invalid := []struct {
 		name, field, errContains string
 	}{
@@ -39,6 +54,7 @@ func TestFieldPathToSQL(t *testing.T) {
 		{"starts with digit", "spec.1abc", "invalid field selector path"},
 		{"empty segment", "spec.", "invalid field selector path"},
 		{"special chars", "spec.foo$bar", "invalid field selector path"},
+		{"invalid label key", "metadata.labels.", "invalid label key"},
 	}
 	for _, tt := range invalid {
 		t.Run(tt.name, func(t *testing.T) {
@@ -93,24 +109,24 @@ func TestBuildFieldSelectorFilter(t *testing.T) {
 
 func TestContinueToken(t *testing.T) {
 	t.Run("round trip", func(t *testing.T) {
-		offset, err := decodeContinue(encodeContinue(42))
+		txid, err := decodeContinue(encodeContinue(42))
 		require.NoError(t, err)
-		assert.Equal(t, int64(42), offset)
+		assert.Equal(t, uint64(42), txid)
 	})
 
 	t.Run("empty", func(t *testing.T) {
-		offset, err := decodeContinue("")
+		txid, err := decodeContinue("")
 		require.NoError(t, err)
-		assert.Equal(t, int64(0), offset)
+		assert.Equal(t, uint64(0), txid)
 	})
 
 	t.Run("invalid base64", func(t *testing.T) {
 		_, err := decodeContinue("not-valid!!!")
-		assert.ErrorContains(t, err, "invalid continue token")
+		assert.ErrorIs(t, err, ErrInvalidContinueToken)
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
 		_, err := decodeContinue("bm90LWpzb24=")
-		assert.ErrorContains(t, err, "invalid continue token")
+		assert.ErrorIs(t, err, ErrInvalidContinueToken)
 	})
 }

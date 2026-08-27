@@ -123,8 +123,8 @@ func (c *pgCache) List(ctx context.Context, list client.ObjectList, opts ...clie
 	}
 	list.SetResourceVersion(result.ResourceVersion.String())
 	if listOpts.Limit > 0 && int64(len(result.Resources)) == listOpts.Limit {
-		offset, _ := decodeContinue(listOpts.Continue)
-		list.SetContinue(encodeContinue(offset + listOpts.Limit))
+		last := result.Resources[len(result.Resources)-1]
+		list.SetContinue(encodeContinue(last.TxidStamp))
 	}
 	return nil
 }

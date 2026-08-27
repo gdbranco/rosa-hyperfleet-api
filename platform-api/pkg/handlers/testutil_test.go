@@ -1,0 +1,51 @@
+//go:build integration
+
+package handlers
+
+import (
+	"context"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
+	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/clients/hyperfleetdb"
+	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/middleware"
+)
+
+func newTestScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
+	_ = hyperfleetv1alpha1.AddToScheme(s)
+	return s
+}
+
+func testContext(accountID string) context.Context {
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, middleware.ContextKeyAccountID, accountID)
+	ctx = context.WithValue(ctx, middleware.ContextKeyCallerARN, "arn:aws:iam::"+accountID+":user/test")
+	return ctx
+}
+
+// newIndexedFakeBuilder returns a fake client builder with field indexes
+// matching the MatchingFields selectors used in production list queries.
+// The real pgclient translates these to SQL; the fake client needs explicit indexers.
+func newIndexedFakeBuilder(scheme *runtime.Scheme) *fake.ClientBuilder {
+	accountFieldKey := "metadata.labels." + hyperfleetdb.AccountIDLabel
+	accountIndexer := func(o client.Object) []string {
+		if v, ok := o.GetLabels()[hyperfleetdb.AccountIDLabel]; ok {
+			return []string{v}
+		}
+		return nil
+	}
+	nameIndexer := func(o client.Object) []string { return []string{o.GetName()} }
+
+	return fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithIndex(&hyperfleetv1alpha1.Cluster{}, accountFieldKey, accountIndexer).
+		WithIndex(&hyperfleetv1alpha1.Cluster{}, "metadata.name", nameIndexer).
+		WithIndex(&hyperfleetv1alpha1.NodePool{}, accountFieldKey, accountIndexer).
+		WithIndex(&hyperfleetv1alpha1.NodePool{}, "metadata.name", nameIndexer)
+}

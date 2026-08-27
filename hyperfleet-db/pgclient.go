@@ -114,8 +114,8 @@ func (c *pgClient) List(ctx context.Context, list client.ObjectList, opts ...cli
 
 	list.SetResourceVersion(result.ResourceVersion.String())
 	if listOpts.Limit > 0 && int64(len(result.Resources)) == listOpts.Limit {
-		offset, _ := decodeContinue(listOpts.Continue)
-		list.SetContinue(encodeContinue(offset + listOpts.Limit))
+		last := result.Resources[len(result.Resources)-1]
+		list.SetContinue(encodeContinue(last.TxidStamp))
 	}
 	return nil
 }
@@ -586,26 +586,26 @@ func (ls labelSet) Lookup(label string) (value string, exists bool) {
 }
 
 type continueToken struct {
-	Offset int64 `json:"offset"`
+	TxidStamp uint64 `json:"txid_stamp"`
 }
 
-func decodeContinue(token string) (int64, error) {
+func decodeContinue(token string) (uint64, error) {
 	if token == "" {
 		return 0, nil
 	}
 	data, err := base64.StdEncoding.DecodeString(token)
 	if err != nil {
-		return 0, fmt.Errorf("pgruntime: invalid continue token: %w", err)
+		return 0, fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
 	}
 	var ct continueToken
 	if err := json.Unmarshal(data, &ct); err != nil {
-		return 0, fmt.Errorf("pgruntime: invalid continue token: %w", err)
+		return 0, fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
 	}
-	return ct.Offset, nil
+	return ct.TxidStamp, nil
 }
 
-func encodeContinue(offset int64) string {
-	data, _ := json.Marshal(continueToken{Offset: offset})
+func encodeContinue(txidStamp uint64) string {
+	data, _ := json.Marshal(continueToken{TxidStamp: txidStamp})
 	return base64.StdEncoding.EncodeToString(data)
 }
 
@@ -632,11 +632,11 @@ func buildListFilter(listOpts client.ListOptions) (*reader.ListFilter, error) {
 
 	if listOpts.Limit > 0 {
 		f.Limit = listOpts.Limit
-		offset, err := decodeContinue(listOpts.Continue)
+		txidStamp, err := decodeContinue(listOpts.Continue)
 		if err != nil {
 			return nil, err
 		}
-		f.Offset = offset
+		f.TxidStampCursor = txidStamp
 	}
 
 	if f.Limit == 0 && len(f.WhereClauses) == 0 {
