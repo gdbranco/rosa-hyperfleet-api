@@ -124,7 +124,15 @@ func (c *pgCache) List(ctx context.Context, list client.ObjectList, opts ...clie
 	list.SetResourceVersion(result.ResourceVersion.String())
 	if listOpts.Limit > 0 && int64(len(result.Resources)) == listOpts.Limit {
 		last := result.Resources[len(result.Resources)-1]
-		list.SetContinue(encodeContinue(last.TxidStamp))
+		incomingCT, _ := decodeContinue(listOpts.Continue)
+		watermark := incomingCT.TxidStampMax
+		if watermark == 0 {
+			watermark = result.ResourceVersion.Watermark
+		}
+		list.SetContinue(encodeContinue(continueToken{
+			TxidStamp:    last.TxidStamp,
+			TxidStampMax: watermark,
+		}))
 	}
 	return nil
 }

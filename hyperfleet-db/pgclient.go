@@ -115,7 +115,18 @@ func (c *pgClient) List(ctx context.Context, list client.ObjectList, opts ...cli
 	list.SetResourceVersion(result.ResourceVersion.String())
 	if listOpts.Limit > 0 && int64(len(result.Resources)) == listOpts.Limit {
 		last := result.Resources[len(result.Resources)-1]
-		list.SetContinue(encodeContinue(last.TxidStamp))
+		// Carry the snapshot watermark from the incoming token, or set it from
+		// this query's watermark for the first page. All subsequent pages use
+		// txid_stamp <= watermark so items created after page 1 do not appear.
+		incomingCT, _ := decodeContinue(listOpts.Continue)
+		watermark := incomingCT.TxidStampMax
+		if watermark == 0 {
+			watermark = result.ResourceVersion.Watermark
+		}
+		list.SetContinue(encodeContinue(continueToken{
+			TxidStamp:    last.TxidStamp,
+			TxidStampMax: watermark,
+		}))
 	}
 	return nil
 }
@@ -586,26 +597,27 @@ func (ls labelSet) Lookup(label string) (value string, exists bool) {
 }
 
 type continueToken struct {
-	TxidStamp uint64 `json:"txid_stamp"`
+	TxidStamp    uint64 `json:"txid_stamp"`
+	TxidStampMax uint64 `json:"txid_stamp_max"` // snapshot watermark; 0 = unconstrained
 }
 
-func decodeContinue(token string) (uint64, error) {
+func decodeContinue(token string) (continueToken, error) {
 	if token == "" {
-		return 0, nil
+		return continueToken{}, nil
 	}
 	data, err := base64.StdEncoding.DecodeString(token)
 	if err != nil {
-		return 0, fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
+		return continueToken{}, fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
 	}
 	var ct continueToken
 	if err := json.Unmarshal(data, &ct); err != nil {
-		return 0, fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
+		return continueToken{}, fmt.Errorf("%w: %w", ErrInvalidContinueToken, err)
 	}
-	return ct.TxidStamp, nil
+	return ct, nil
 }
 
-func encodeContinue(txidStamp uint64) string {
-	data, _ := json.Marshal(continueToken{TxidStamp: txidStamp})
+func encodeContinue(ct continueToken) string {
+	data, _ := json.Marshal(ct)
 	return base64.StdEncoding.EncodeToString(data)
 }
 
@@ -632,11 +644,12 @@ func buildListFilter(listOpts client.ListOptions) (*reader.ListFilter, error) {
 
 	if listOpts.Limit > 0 {
 		f.Limit = listOpts.Limit
-		txidStamp, err := decodeContinue(listOpts.Continue)
+		ct, err := decodeContinue(listOpts.Continue)
 		if err != nil {
 			return nil, err
 		}
-		f.TxidStampCursor = txidStamp
+		f.TxidStampCursor = ct.TxidStamp
+		f.TxidStampMax = ct.TxidStampMax
 	}
 
 	if f.Limit == 0 && len(f.WhereClauses) == 0 {

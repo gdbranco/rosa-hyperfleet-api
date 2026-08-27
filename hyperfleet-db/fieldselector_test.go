@@ -108,16 +108,19 @@ func TestBuildFieldSelectorFilter(t *testing.T) {
 }
 
 func TestContinueToken(t *testing.T) {
-	t.Run("round trip", func(t *testing.T) {
-		txid, err := decodeContinue(encodeContinue(42))
+	t.Run("round trip with watermark", func(t *testing.T) {
+		ct := continueToken{TxidStamp: 42, TxidStampMax: 99}
+		decoded, err := decodeContinue(encodeContinue(ct))
 		require.NoError(t, err)
-		assert.Equal(t, uint64(42), txid)
+		assert.Equal(t, uint64(42), decoded.TxidStamp)
+		assert.Equal(t, uint64(99), decoded.TxidStampMax)
 	})
 
 	t.Run("empty", func(t *testing.T) {
-		txid, err := decodeContinue("")
+		ct, err := decodeContinue("")
 		require.NoError(t, err)
-		assert.Equal(t, uint64(0), txid)
+		assert.Equal(t, uint64(0), ct.TxidStamp)
+		assert.Equal(t, uint64(0), ct.TxidStampMax)
 	})
 
 	t.Run("invalid base64", func(t *testing.T) {

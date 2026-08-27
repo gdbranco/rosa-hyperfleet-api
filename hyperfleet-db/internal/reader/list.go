@@ -19,7 +19,8 @@ type ListFilter struct {
 	WhereClauses    []string
 	WhereArgs       []any
 	Limit           int64
-	TxidStampCursor uint64
+	TxidStampCursor uint64 // WHERE txid_stamp > N  (start of page)
+	TxidStampMax    uint64 // WHERE txid_stamp <= N (snapshot watermark, carried across pages)
 }
 
 // List performs a REPEATABLE READ snapshot read of all live and dying resources
@@ -70,6 +71,10 @@ func List(ctx context.Context, conn *pgx.Conn, gvk string, filter *ListFilter) (
 	if filter != nil && filter.TxidStampCursor > 0 {
 		args = append(args, filter.TxidStampCursor)
 		fmt.Fprintf(&qb, " AND txid_stamp > $%d", len(args))
+	}
+	if filter != nil && filter.TxidStampMax > 0 {
+		args = append(args, filter.TxidStampMax)
+		fmt.Fprintf(&qb, " AND txid_stamp <= $%d", len(args))
 	}
 	qb.WriteString(" ORDER BY txid_stamp")
 	if filter != nil && filter.Limit > 0 {

@@ -144,13 +144,13 @@ var _ = Describe("SDK E2E: cursor-based pagination", Ordered, func() {
 		Expect(page1.Items[0].UID).ToNot(Equal(page2.Items[0].UID),
 			"page 1 and page 2 should return different clusters")
 
-		By("verifying the continue token is empty after page 2 — cursor excludes cluster C")
-		// The continue token encodes the txid_stamp of the last item on page 1. Cluster C
-		// was written after that point, so it has a higher txid_stamp than the cursor.
-		// An empty continue token on page 2 confirms the traversal is complete and C is
-		// correctly excluded — it was not written before the cursor was set.
+		By("verifying the continue token is empty after page 2 — snapshot excludes cluster C")
+		// The cursor carries the snapshot watermark from page 1's query. Cluster C
+		// was created after that snapshot, so txid_stamp(C) > watermark.
+		// The SQL WHERE txid_stamp <= watermark excludes C from all subsequent pages,
+		// making page 2 the last page of this traversal.
 		Expect(page2.Continue).To(BeEmpty(),
-			"page 2 should be the last page; cluster C created after the cursor has a higher txid_stamp and is excluded from this traversal")
+			"page 2 should be the last page; C has txid_stamp > watermark and is excluded by snapshot isolation")
 	})
 })
 
