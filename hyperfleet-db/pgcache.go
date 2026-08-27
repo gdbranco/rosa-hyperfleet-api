@@ -100,10 +100,18 @@ func (c *pgCache) List(ctx context.Context, list client.ObjectList, opts ...clie
 	if err != nil {
 		return err
 	}
+	if filter != nil && filter.Limit > 0 {
+		filter.Limit++
+	}
 
 	result, err := reader.List(ctx, poolConn.Conn(), gvkStr, filter)
 	if err != nil {
 		return err
+	}
+
+	hasMore := listOpts.Limit > 0 && int64(len(result.Resources)) > listOpts.Limit
+	if hasMore {
+		result.Resources = result.Resources[:listOpts.Limit]
 	}
 
 	var items []client.Object
@@ -122,7 +130,7 @@ func (c *pgCache) List(ctx context.Context, list client.ObjectList, opts ...clie
 		return err
 	}
 	list.SetResourceVersion(result.ResourceVersion.String())
-	if listOpts.Limit > 0 && int64(len(result.Resources)) == listOpts.Limit {
+	if hasMore {
 		last := result.Resources[len(result.Resources)-1]
 		incomingCT, _ := decodeContinue(listOpts.Continue)
 		watermark := incomingCT.TxidStampMax

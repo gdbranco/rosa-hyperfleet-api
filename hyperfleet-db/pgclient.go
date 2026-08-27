@@ -90,10 +90,21 @@ func (c *pgClient) List(ctx context.Context, list client.ObjectList, opts ...cli
 	if err != nil {
 		return err
 	}
+	// Request one extra item so we can tell whether a next page exists without
+	// issuing a second COUNT query. The extra item is never exposed to callers.
+	if filter != nil && filter.Limit > 0 {
+		filter.Limit++
+	}
 
 	result, err := reader.List(ctx, conn, gvkStr, filter)
 	if err != nil {
 		return err
+	}
+
+	// Determine whether more pages exist and trim the lookahead item.
+	hasMore := listOpts.Limit > 0 && int64(len(result.Resources)) > listOpts.Limit
+	if hasMore {
+		result.Resources = result.Resources[:listOpts.Limit]
 	}
 
 	var items []client.Object
@@ -113,7 +124,7 @@ func (c *pgClient) List(ctx context.Context, list client.ObjectList, opts ...cli
 	}
 
 	list.SetResourceVersion(result.ResourceVersion.String())
-	if listOpts.Limit > 0 && int64(len(result.Resources)) == listOpts.Limit {
+	if hasMore {
 		last := result.Resources[len(result.Resources)-1]
 		// Carry the snapshot watermark from the incoming token, or set it from
 		// this query's watermark for the first page. All subsequent pages use

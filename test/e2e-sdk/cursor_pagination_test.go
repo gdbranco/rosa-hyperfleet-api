@@ -81,6 +81,13 @@ var _ = Describe("SDK E2E: cursor-based pagination", Ordered, func() {
 		suffix := fmt.Sprintf("%d", time.Now().Unix())
 		clusters := cs.HyperfleetV1alpha1().Clusters()
 
+		By("verifying the account has no pre-existing clusters")
+		existing, listErr := clusters.List(ctx, platform.ListOptions{Limit: 100})
+		Expect(listErr).ToNot(HaveOccurred(), "listing existing clusters")
+		Expect(existing.Items).To(BeEmpty(),
+			"account must be empty before the pagination test; found %d cluster(s) — ensure the lifecycle test has fully cleaned up before running this suite",
+			len(existing.Items))
+
 		By("creating two clusters before pagination begins")
 		clusterA, err = clusters.Create(ctx, minimalCluster("pag-a-"+suffix), platform.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred(), "creating cluster A")
