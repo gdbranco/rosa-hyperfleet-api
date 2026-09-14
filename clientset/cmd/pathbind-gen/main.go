@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/openshift-online/rosa-hyperfleet-api/clientset/cmd/pathbind-gen/cobra"
+	"github.com/openshift-online/rosa-hyperfleet-api/clientset/cmd/pathbind-gen/tf"
 )
 
 func main() {
@@ -75,8 +76,7 @@ func main() {
 }
 
 func runTF(draftPath, overridesPath, outputDir string) error {
-	// TODO: Implement TF mode generation by calling tf.Run()
-	return fmt.Errorf("TF mode not yet implemented")
+	return tf.Run(draftPath, overridesPath, outputDir)
 }
 
 func fatalf(format string, args ...any) {

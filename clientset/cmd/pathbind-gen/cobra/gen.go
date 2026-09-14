@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
-	"time"
 
 	pkg "github.com/openshift-online/rosa-hyperfleet-api/clientset/cmd/pathbind-gen/pkg"
 	"gopkg.in/yaml.v3"
@@ -64,7 +63,6 @@ func Run(draftPath, overridesPath, outputDir string) error {
 		unsetPtrFields := pkg.CollectUnsetPtrFields(aliases)
 
 		td := pkg.CobraTemplateData{
-			GeneratedAt:              time.Now().UTC().Format(time.RFC3339),
 			Package:                  cfg.Package,
 			RuntimePkgImport:         cfg.RuntimePkg,
 			RuntimeAlias:             runtimeAlias,
@@ -79,7 +77,7 @@ func Run(draftPath, overridesPath, outputDir string) error {
 			RequiredCreateFlagFields: reqCreate,
 			RequiredUpdateFlagFields: reqUpdate,
 			HasUpdateFields:          len(updateFlagFields) > 0,
-			Namespaced:               strings.EqualFold(resKey, "nodepool"),
+			Namespaced:               pkg.IsNamespacedResource(resKey),
 			UnsetPtrFields:           unsetPtrFields,
 		}
 

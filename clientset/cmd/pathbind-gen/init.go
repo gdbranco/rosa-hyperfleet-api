@@ -80,6 +80,16 @@ func runInit(registryPath, openapiPath, outputPath string) error {
 			Operations: []string{"create"},
 		})
 
+		// metadata.uid is computed and read-only on every Kubernetes resource.
+		// It does not appear in the FieldRegistry (ObjectMeta has no write-mode
+		// annotation) but must be in the draft so consumers can use it as a resource ID.
+		covered["metadata.uid"] = true
+		res.Fields = append(res.Fields, pkg.DraftField{
+			Path:       "metadata.uid",
+			GoType:     "string",
+			Operations: []string{"read"},
+		})
+
 		for _, e := range byOwner[owner] {
 			ops := []string{"create", "update"}
 			if e.WriteMode == "immutable" {

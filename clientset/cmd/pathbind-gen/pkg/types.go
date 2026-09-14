@@ -100,7 +100,6 @@ type UnsetPtrField struct {
 
 // CobraTemplateData is passed to cobra templates.
 type CobraTemplateData struct {
-	GeneratedAt              string
 	Package                  string
 	RuntimePkgImport         string
 	RuntimeAlias             string
@@ -121,16 +120,22 @@ type CobraTemplateData struct {
 
 // TFTemplateData is passed to tf templates.
 type TFTemplateData struct {
-	GeneratedAt   string
-	Package       string
-	ResourceName  string
-	SDKType       string
-	SDKShortType  string
-	AllFields     []MergedAlias
-	CreateFields  []MergedAlias
-	UpdateFields  []MergedAlias
-	ImmutableList []string
-	ComputedList  []string
+	Package        string
+	ResourceName   string
+	SDKType        string
+	SDKShortType   string
+	AllFields      []MergedAlias
+	CreateFields   []MergedAlias
+	UpdateFields   []MergedAlias
+	ImmutableList  []string
+	ComputedList   []string
+	Namespaced     bool
+	HandlerFactory string // e.g., "NewClusterHandlerImpl" for template to call
+}
+
+// IsNamespacedResource returns true if the resource requires a namespace/parent argument.
+func IsNamespacedResource(resourceKey string) bool {
+	return strings.EqualFold(resourceKey, "nodepool")
 }
 
 // SDKTypeForOwner maps ownerType to SDK Go type.
@@ -410,6 +415,37 @@ func ToKebab(s string) string {
 						(i+2 >= len(runes) || (runes[i+2] >= 'A' && runes[i+2] <= 'Z'))
 					if !isSuffix {
 						result = append(result, '-')
+					}
+				}
+			}
+		}
+		if upper {
+			result = append(result, r+32)
+		} else {
+			result = append(result, r)
+		}
+	}
+	return string(result)
+}
+
+// ToSnake converts camelCase to snake_case (same as ToKebab but with underscore).
+func ToSnake(s string) string {
+	runes := []rune(s)
+	var result []rune
+	for i, r := range runes {
+		upper := r >= 'A' && r <= 'Z'
+		if i > 0 && upper {
+			prev := runes[i-1]
+			prevUpper := prev >= 'A' && prev <= 'Z'
+			if !prevUpper {
+				result = append(result, '_')
+			} else if i+1 < len(runes) {
+				next := runes[i+1]
+				if next >= 'a' && next <= 'z' {
+					isSuffix := next == 's' &&
+						(i+2 >= len(runes) || (runes[i+2] >= 'A' && runes[i+2] <= 'Z'))
+					if !isSuffix {
+						result = append(result, '_')
 					}
 				}
 			}
