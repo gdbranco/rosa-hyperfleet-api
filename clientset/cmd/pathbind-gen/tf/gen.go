@@ -38,7 +38,9 @@ func Run(draftPath, overridesPath, outputDir string) error {
 	funcMap := buildFuncMap()
 
 	stateTmpl := template.Must(template.New("state").Funcs(funcMap).Parse(stateTemplate))
+	stateNativeTmpl := template.Must(template.New("stateNative").Funcs(funcMap).Parse(stateNativeTemplate))
 	resourceTmpl := template.Must(template.New("resource").Funcs(funcMap).Parse(resourceTemplate))
+	utilsGenTmpl := template.Must(template.New("utilsGen").Funcs(funcMap).Parse(utilsGenTemplate))
 
 	allResKeys := pkg.UnionKeys(draftSDKTypes, rawOv.Resources)
 	for _, resKey := range allResKeys {
@@ -89,11 +91,26 @@ func Run(draftPath, overridesPath, outputDir string) error {
 			return err
 		}
 
+		// Generate native state struct file: <resource>_state_native_gen.go
+		if err := emitFile(stateNativeTmpl, td, filepath.Join(outputDir, strings.ToLower(resName)+"_state_native_gen.go")); err != nil {
+			return err
+		}
+
 		// Generate resource base + handler interface + CRUD: <resource>_resource_gen.go
 		if err := emitFile(resourceTmpl, td, filepath.Join(outputDir, strings.ToLower(resName)+"_resource_gen.go")); err != nil {
 			return err
 		}
 	}
+
+	// Generate shared utils file (only once, not per resource)
+	// Use minimal template data since utils doesn't need resource-specific info
+	utilsData := pkg.TFTemplateData{
+		Package: cfg.Package,
+	}
+	if err := emitFile(utilsGenTmpl, utilsData, filepath.Join(outputDir, "utils_gen.go")); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -186,9 +203,11 @@ func buildFuncMap() template.FuncMap {
 			}
 			return strings.Join(modifiers, ", ")
 		},
-		// isConsumerOnly checks if field has hfsdk:"-" (not in SDK)
+		// isConsumerOnly checks if field is hidden from Terraform schema.
+		// Fields with hfsdk:"-" but Operations defined are Terraform inputs (not consumer-only).
+		// Only truly hidden fields have hfsdk:"-" AND no Operations.
 		"isConsumerOnly": func(a pkg.MergedAlias) bool {
-			return a.Path == "-"
+			return a.Path == "-" && len(a.Operations) == 0
 		},
 		// hfsdkTag returns the hfsdk tag value (path or "-" for consumer-only)
 		"hfsdkTag": func(a pkg.MergedAlias) string {
@@ -219,7 +238,7 @@ func buildFuncMap() template.FuncMap {
 				return "List"
 			}
 			// Check if it's a map type
-			if strings.Contains(a.Type, "map[") || strings.Contains(a.Type, "types.Map") {
+			if a.Type == "map" || strings.Contains(a.Type, "map[") || strings.Contains(a.Type, "types.Map") {
 				return "Map"
 			}
 			// Check if it's a bool type

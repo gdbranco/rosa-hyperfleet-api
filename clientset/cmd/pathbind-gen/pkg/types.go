@@ -572,8 +572,10 @@ func goTypeToConsumer(goType string) string {
 		return "*int64"
 	case "number":
 		return ""
-	case "array", "map":
+	case "array":
 		return ""
+	case "map":
+		return "map"
 	}
 	return ""
 }
