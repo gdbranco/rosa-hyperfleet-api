@@ -149,6 +149,10 @@ These are implementation prerequisites, not reasons to add database constraints:
 - **Create/no-op contract:** preserve no-op suppression for content-equal updates,
   status writes, and desired-state reapplication. Do not let it turn a duplicate
   Create into success; update `DESIGN.md` and its tests to match the target contract.
+- **Future API idempotency keys:** an optional key may make client POST retries safe
+  after a lost response. Design this separately, including account/operation scope,
+  request-digest checks, replayed responses, and retention. It does not change
+  FleetDB Create semantics: a duplicate name still returns `AlreadyExists`.
 - **Labels index:** add a non-unique GIN index for the JSON labels selector path.
   This is an additive index, not a business uniqueness constraint. Define its schema
   installation alongside the FleetDB migration work.
@@ -180,8 +184,9 @@ Tests:
 - Client-sent UID is ignored; Create returns database UID; delete/recreate returns a
   different UID; duplicate Create returns `AlreadyExists`.
 - `metadata.uid` field selectors work against the UID column.
-- Label selectors, including supported set/existence/negative forms, match the
-  expected rows in SQL and paginate without skipped matches.
+- Label selectors, including set/existence/negative and numeric comparisons, match
+  the expected rows in SQL and paginate without skipped matches. Numeric selectors
+  do not match missing, non-integer, or out-of-int64-range label values.
 - A stale UID cannot update, status-update, or delete a same-name replacement.
 
 ### Phase 2 — Identity and customer DNS reservation switch (PR 2)
