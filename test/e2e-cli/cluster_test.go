@@ -94,8 +94,6 @@ func fireAndForgetInfraDelete(rosactlBin, clusterName, region string, resources 
 	}
 }
 
-const defaultE2EReleaseImage = "quay.io/openshift-release-dev/ocp-release:5.1.0-ec.1-multi"
-
 var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 	var (
 		baseURL           string
@@ -381,12 +379,7 @@ var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 	It("should be able to create the hcp cluster", Label("hcp-create", "create"), func() {
 		defer recordTiming("hcp-cluster-create")()
 		GinkgoWriter.Printf("Creating new HCP cluster: %s\n", clusterName)
-		ocpImage := os.Getenv("OCP_IMAGE")
-		if ocpImage == "" {
-			ocpImage = defaultE2EReleaseImage
-		}
-		cmd := exec.Command(ROSACTL_BIN, "cluster", "create", clusterName,
-			"--region", region, "--output", "json", "--version", ocpImage)
+		cmd := exec.Command(ROSACTL_BIN, "cluster", "create", clusterName, "--region", region, "--output", "json")
 		cmd.Env = append(os.Environ(), customerEnv()...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout

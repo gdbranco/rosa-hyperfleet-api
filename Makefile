@@ -224,7 +224,6 @@ test-e2e-cli: $(GINKGO)
 	E2E_RHOBS_API_URL="$${RHOBS_API_URL}" \
 	E2E_ALERTMANAGER_URL="$${ALERTMANAGER_URL}" \
 	ROSACTL_BIN="$${ROSACTL_BIN}" AWS_REGION="$${AWS_REGION}" \
-	OCP_IMAGE="$${OCP_IMAGE}" \
 	$(GINKGO) -vv --junit-report=junit-cli.xml \
 		$(if $(E2E_LABEL_FILTER),--label-filter="$(E2E_LABEL_FILTER)") \
 		--output-dir=$(TEST_OUTPUT_DIR) ./test/e2e-cli
@@ -241,7 +240,7 @@ test-e2e-sdk: $(GINKGO)
 	CUSTOMER_AWS_PROFILE="$${CUSTOMER_AWS_PROFILE}" \
 	AWS_REGION="$${AWS_REGION}" \
 	ROSACTL_BIN="$${ROSACTL_BIN}" \
-	OCP_IMAGE="$${OCP_IMAGE}" \
+	HYPERFLEET_VERSION="$${HYPERFLEET_VERSION}" \
 	$(GINKGO) -vv --timeout=3h --junit-report=junit-sdk.xml \
 		--output-dir=$(TEST_OUTPUT_DIR) ./test/e2e-sdk
 

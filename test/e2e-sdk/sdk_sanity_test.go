@@ -29,7 +29,7 @@ limitations under the License.
 //	E2E_CUSTOMER_ACCOUNT_ID   — customer account ID (derived from STS if absent)
 //	HCP_CLUSTER_NAME          — fixed cluster name (generated if absent)
 //	HCP_ROSA_ISSUER_URL       — OIDC issuer URL override when not in cluster response
-//	OCP_IMAGE               — release image passed to release.image; defaults to defaultReleaseImage
+//	HYPERFLEET_VERSION        — release image passed to release.image; server resolves version when empty
 //	HYPERFLEET_INSTANCE_TYPE  — node instance type (defaults to m5.xlarge)
 //	E2E_SKIP_CLEANUP          — set to skip DeferCleanup safety-net teardown
 package e2e_sdk_test
@@ -73,7 +73,6 @@ const (
 
 	defaultRegion       = "us-east-1"
 	defaultInstanceType = "m5.xlarge"
-	defaultReleaseImage = "quay.io/openshift-release-dev/ocp-release:5.1.0-ec.1-multi"
 )
 
 // iamStackOutputs holds the IAM role ARNs and instance profile read from the
@@ -139,10 +138,7 @@ var _ = Describe("SDK E2E: cluster and nodepool lifecycle", Ordered, func() {
 			GinkgoWriter.Printf("No AWS_REGION set, defaulting to %s\n", region)
 		}
 
-		version = os.Getenv("OCP_IMAGE")
-		if version == "" {
-			version = defaultReleaseImage
-		}
+		version = os.Getenv("HYPERFLEET_VERSION")
 
 		instanceType = os.Getenv("HYPERFLEET_INSTANCE_TYPE")
 		if instanceType == "" {

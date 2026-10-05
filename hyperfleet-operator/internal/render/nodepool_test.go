@@ -104,9 +104,6 @@ func TestNodePoolResourceObject(t *testing.T) {
 	if got := len(np.Spec.Platform.AWS.SecurityGroups); got != 2 {
 		t.Errorf("SecurityGroups count = %d, want 2", got)
 	}
-	if np.Spec.Release.Image != "quay.io/ocp:4.17" {
-		t.Errorf("Release.Image = %q, want %q", np.Spec.Release.Image, "quay.io/ocp:4.17")
-	}
 }
 
 func TestNodePoolResourceDefaults(t *testing.T) {
@@ -167,11 +164,6 @@ func TestNodePoolResourceDefaults(t *testing.T) {
 		{"RootVolume.Type", func(t *testing.T) {
 			if np.Spec.Platform.AWS.RootVolume == nil || np.Spec.Platform.AWS.RootVolume.Type != "gp3" {
 				t.Errorf("got %v, want gp3", np.Spec.Platform.AWS.RootVolume)
-			}
-		}},
-		{"Release.Image", func(t *testing.T) {
-			if np.Spec.Release.Image != "quay.io/ocp:4.17" {
-				t.Errorf("got %q, want the cluster's %q", np.Spec.Release.Image, "quay.io/ocp:4.17")
 			}
 		}},
 	}

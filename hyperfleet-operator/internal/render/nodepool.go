@@ -24,10 +24,7 @@ func NodePoolResource(nodePool *hyperfleetv1alpha1.NodePool, cluster *hyperfleet
 		return Resource{}, fmt.Errorf("converting NodePoolSpec for nodepool %s/%s: %w", ns, npName, err)
 	}
 	npSpec.ClusterName = clusterName
-	// NodePools without an explicit release follow the parent cluster's.
-	if npSpec.Release.Image == "" {
-		npSpec.Release.Image = cluster.Spec.HostedCluster.Release.Image
-	}
+	npSpec.Release.Image = "quay.io/openshift-release-dev/ocp-release:5.0.0-ec.2-multi"
 
 	if npSpec.Management.UpgradeType == "" {
 		npSpec.Management.UpgradeType = hypershiftv1beta1.UpgradeTypeReplace

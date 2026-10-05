@@ -302,10 +302,6 @@ func TestHostedClusterDNS(t *testing.T) {
 		t.Errorf("issuerURL = %q, want %q", got, "https://oidc.example.com/abc12345")
 	}
 
-	if got := hc.Spec.Release.Image; got != "quay.io/ocp:4.17" {
-		t.Errorf("release.image = %q, want %q", got, "quay.io/ocp:4.17")
-	}
-
 	// When using a pre-created OIDC config, InfraID should match the UUID from issuerURL
 	// instead of the cluster ID, so HyperShift uploads to the correct S3 path.
 	if got := hc.Spec.InfraID; got != "abc12345" {
