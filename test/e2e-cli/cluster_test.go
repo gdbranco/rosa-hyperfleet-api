@@ -763,9 +763,8 @@ var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 
 			foundNodePool := false
 			for _, np := range list.Items {
-				// Extract cluster ID from namespace (format: cluster-<uuid>)
-				npClusterID := strings.TrimPrefix(np.Namespace, "cluster-")
-				if npClusterID != id {
+				// NodePools are account-scoped; parent UID is recorded in the owner label.
+				if np.Labels["hyperfleet.io/cluster-uid"] != id {
 					continue
 				}
 				foundNodePool = true

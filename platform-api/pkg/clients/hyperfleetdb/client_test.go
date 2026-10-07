@@ -29,7 +29,7 @@ func TestClient_CreateCluster_SetsAccountLabel(t *testing.T) {
 	cluster := &hyperfleetv1alpha1.Cluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-cluster",
-			Namespace: "cluster-uuid-1",
+			Namespace: "account-wrong-account",
 		},
 	}
 
@@ -39,6 +39,9 @@ func TestClient_CreateCluster_SetsAccountLabel(t *testing.T) {
 
 	if got := cluster.Labels[accountIDLabel]; got != "acct-123" {
 		t.Errorf("account-id label = %q, want %q", got, "acct-123")
+	}
+	if cluster.Namespace != accountNamespace("acct-123") {
+		t.Errorf("namespace = %q, want %q", cluster.Namespace, accountNamespace("acct-123"))
 	}
 }
 
@@ -50,7 +53,7 @@ func TestClient_CreateNodePool_SetsNamespaceAndLabel(t *testing.T) {
 	np := &hyperfleetv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-nodepool",
-			Namespace: "cluster-uuid-1",
+			Namespace: "account-wrong-account",
 		},
 		Spec: hyperfleetv1alpha1.NodePoolSpec{},
 	}
@@ -62,19 +65,22 @@ func TestClient_CreateNodePool_SetsNamespaceAndLabel(t *testing.T) {
 	if got := np.Labels[accountIDLabel]; got != "acct-123" {
 		t.Errorf("account-id label = %q, want %q", got, "acct-123")
 	}
+	if np.Namespace != accountNamespace("acct-123") {
+		t.Errorf("namespace = %q, want %q", np.Namespace, accountNamespace("acct-123"))
+	}
 }
 
 func TestClient_ListClusters_FiltersByAccount(t *testing.T) {
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		&hyperfleetv1alpha1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "my-cluster", Namespace: "cluster-uuid-1",
+				Name: "my-cluster", Namespace: "account-acct-1",
 				Labels: map[string]string{accountIDLabel: "acct-1"},
 			},
 		},
 		&hyperfleetv1alpha1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "other-cluster", Namespace: "cluster-uuid-2",
+				Name: "other-cluster", Namespace: "account-acct-2",
 				Labels: map[string]string{accountIDLabel: "acct-2"},
 			},
 		},
@@ -94,17 +100,17 @@ func TestClient_ListClusters_FiltersByAccount(t *testing.T) {
 	}
 }
 
-func TestClient_GetNodePool_ScopedToCluster(t *testing.T) {
+func TestClient_GetNodePool_ScopedToAccount(t *testing.T) {
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		&hyperfleetv1alpha1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "workers", Namespace: "cluster-uuid-1",
+				Name: "alpha.workers", Namespace: "account-acct-1",
 				Labels: map[string]string{accountIDLabel: "acct-1"},
 			},
 		},
 		&hyperfleetv1alpha1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "workers", Namespace: "cluster-uuid-2",
+				Name: "beta.workers", Namespace: "account-acct-1",
 				Labels: map[string]string{accountIDLabel: "acct-1"},
 			},
 		},
@@ -112,32 +118,29 @@ func TestClient_GetNodePool_ScopedToCluster(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	c := NewClientFrom(fc, logger)
 
-	np, err := c.GetNodePool(context.Background(), "acct-1", "uuid-2", "workers")
+	np, err := c.GetNodePool(context.Background(), "acct-1", "beta.workers")
 	if err != nil {
 		t.Fatalf("GetNodePool: %v", err)
 	}
-	if np.Namespace != "cluster-uuid-2" {
-		t.Errorf("namespace = %q, want cluster-uuid-2", np.Namespace)
+	if np.Namespace != "account-acct-1" {
+		t.Errorf("namespace = %q, want account-acct-1", np.Namespace)
 	}
 }
 
-func TestClient_GetNodePool_FallbackWithoutClusterID(t *testing.T) {
+func TestClient_GetNodePool_NotFoundOutsideAccount(t *testing.T) {
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		&hyperfleetv1alpha1.NodePool{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "workers", Namespace: "cluster-uuid-1",
+				Name: "alpha.workers", Namespace: "account-acct-2",
 				Labels: map[string]string{accountIDLabel: "acct-1"},
 			},
 		},
 	).Build()
 	c := NewClientFrom(fc, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
-	np, err := c.GetNodePool(context.Background(), "acct-1", "", "workers")
-	if err != nil {
-		t.Fatalf("GetNodePool empty clusterID: unexpected err = %v", err)
-	}
-	if np.Name != "workers" {
-		t.Errorf("got nodepool %q, want workers", np.Name)
+	_, err := c.GetNodePool(context.Background(), "acct-1", "alpha.workers")
+	if !IsNotFound(err) {
+		t.Fatalf("GetNodePool across account namespace: expected NotFound, got %v", err)
 	}
 }
 
@@ -145,7 +148,7 @@ func TestClient_GetCluster_ScopedToAccount(t *testing.T) {
 	fc := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(
 		&hyperfleetv1alpha1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "my-cluster", Namespace: "cluster-uuid-1",
+				Name: "my-cluster", Namespace: "account-acct-1",
 				Labels: map[string]string{accountIDLabel: "acct-1"},
 			},
 		},
@@ -154,7 +157,7 @@ func TestClient_GetCluster_ScopedToAccount(t *testing.T) {
 	c := NewClientFrom(fc, logger)
 
 	// Correct account can access
-	cr, err := c.GetCluster(context.Background(), "acct-1", "uuid-1")
+	cr, err := c.GetCluster(context.Background(), "acct-1", "my-cluster")
 	if err != nil {
 		t.Fatalf("GetCluster with correct account: %v", err)
 	}
@@ -163,7 +166,7 @@ func TestClient_GetCluster_ScopedToAccount(t *testing.T) {
 	}
 
 	// Wrong account gets not-found
-	_, err = c.GetCluster(context.Background(), "acct-2", "uuid-1")
+	_, err = c.GetCluster(context.Background(), "acct-2", "my-cluster")
 	if !IsNotFound(err) {
 		t.Errorf("GetCluster with wrong account: expected NotFound, got %v", err)
 	}
