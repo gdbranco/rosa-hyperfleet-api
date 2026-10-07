@@ -36,11 +36,12 @@ type ClusterSpec struct {
 	// +kubebuilder:validation:MaxProperties=100
 	// +optional
 	Tags map[string]string `json:"tags,omitempty"`
-	// DNSReservationID is the UID of the account-scoped DNSReservation to bind
-	// to this Cluster. Immutable after creation.
+	// DNSReservationID is the UID of an account-scoped DNSReservation to bind to
+	// this Cluster. If omitted, the operator allocates and binds one automatically.
+	// Immutable after creation.
 	// +hyperfleet:write-mode=immutable
-	// +kubebuilder:validation:Required
-	DNSReservationID string `json:"dnsReservationId"`
+	// +optional
+	DNSReservationID string `json:"dnsReservationId,omitempty"`
 	// OidcConfigID is the UID of the account-scoped OidcConfig to use for cluster
 	// identity. Empty selects the legacy managed issuer flow. Immutable after creation.
 	// +hyperfleet:write-mode=immutable

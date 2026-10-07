@@ -59,8 +59,10 @@ var _ = Describe("Cluster Controller", func() {
 
 		AfterEach(func() {
 			resource := &hyperfleetv1alpha1.Cluster{}
+			var clusterUID string
 			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, resource)
 			if err == nil {
+				clusterUID = string(resource.UID)
 				controllerutil.RemoveFinalizer(resource, clusterFinalizer)
 				_ = k8sClient.Update(ctx, resource)
 				_ = k8sClient.Delete(ctx, resource)
@@ -73,11 +75,18 @@ var _ = Describe("Cluster Controller", func() {
 			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "test-oidc-config"}, oc); err == nil {
 				_ = k8sClient.Delete(ctx, oc)
 			}
-			reservation := &hyperfleetv1alpha1.DNSReservation{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: "dns-" + clusterName}, reservation); err == nil {
-				controllerutil.RemoveFinalizer(reservation, dnsReservationFinalizer)
-				_ = k8sClient.Update(ctx, reservation)
-				_ = k8sClient.Delete(ctx, reservation)
+			var reservations hyperfleetv1alpha1.DNSReservationList
+			if err := k8sClient.List(ctx, &reservations, client.InNamespace(testNS)); err == nil {
+				for i := range reservations.Items {
+					reservation := &reservations.Items[i]
+					if reservation.Name != "dns-"+clusterName &&
+						(clusterUID == "" || reservation.Labels[claimedByClusterUIDLabel] != clusterUID) {
+						continue
+					}
+					controllerutil.RemoveFinalizer(reservation, dnsReservationFinalizer)
+					_ = k8sClient.Update(ctx, reservation)
+					_ = k8sClient.Delete(ctx, reservation)
+				}
 			}
 		})
 
@@ -102,6 +111,39 @@ var _ = Describe("Cluster Controller", func() {
 			var updated hyperfleetv1alpha1.Cluster
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, &updated)).To(Succeed())
 			Expect(controllerutil.ContainsFinalizer(&updated, clusterFinalizer)).To(BeTrue())
+		})
+
+		It("should create and bind a DNSReservation when one is not supplied", func() {
+			resource := newTestCluster(clusterName)
+			resource.Spec.DNSReservationID = ""
+			resource.Finalizers = []string{clusterFinalizer}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+
+			reconciler := &ClusterReconciler{
+				Client:         k8sClient,
+				Scheme:         k8sClient.Scheme(),
+				Dynamo:         &fakeDynamo{},
+				RegionalConfig: render.RegionalConfig{BaseDomainSuffix: "example.com", AWSRegion: "us-east-1"},
+			}
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: testNS, Name: clusterName},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			var updated hyperfleetv1alpha1.Cluster
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, &updated)).To(Succeed())
+			Expect(updated.Spec.DNSReservationID).NotTo(BeEmpty())
+
+			var reservation hyperfleetv1alpha1.DNSReservation
+			reservationKey := types.NamespacedName{
+				Namespace: testNS,
+				Name:      automaticDNSReservationName(clusterName, string(updated.UID)),
+			}
+			Expect(k8sClient.Get(ctx, reservationKey, &reservation)).To(Succeed())
+			Expect(string(reservation.UID)).To(Equal(updated.Spec.DNSReservationID))
+			Expect(reservation.Labels[accountIDLabel]).To(Equal("123456789012"))
+			Expect(reservation.Labels[claimedByClusterUIDLabel]).To(Equal(string(updated.UID)))
 		})
 
 		It("should set WaitingForPlacement when no Placement exists", func() {
