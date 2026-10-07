@@ -76,6 +76,14 @@ func TestNodePoolResourceNaming(t *testing.T) {
 	}
 }
 
+func TestNodePoolResourceRejectsMismatchedParentName(t *testing.T) {
+	nodePool := testNodePool()
+	nodePool.Name = "other-cluster.workers"
+	if _, err := NodePoolResource(nodePool, testCluster()); err == nil {
+		t.Fatal("expected error for NodePool name whose parent prefix does not match the Cluster")
+	}
+}
+
 func TestNodePoolResourceObject(t *testing.T) {
 	r, err := NodePoolResource(testNodePool(), testCluster())
 	if err != nil {
