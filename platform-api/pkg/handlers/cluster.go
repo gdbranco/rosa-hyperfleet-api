@@ -161,14 +161,14 @@ func (h *ClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, ErrClusterValidation.WithErrors(errs), h.logger)
 		return
 	}
-	if req.Spec.DNSReservationID == "" {
-		writeAPIError(w, ErrClusterCreateDNSReservationRequired, h.logger)
-		return
-	}
-	dnsReservation, apiErr := h.resolveDNSReservation(ctx, accountID, req.Spec.DNSReservationID)
-	if apiErr != nil {
-		writeAPIError(w, *apiErr, h.logger)
-		return
+	var dnsReservation *hyperfleetv1alpha1.DNSReservation
+	var apiErr *APIError
+	if req.Spec.DNSReservationID != "" {
+		dnsReservation, apiErr = h.resolveDNSReservation(ctx, accountID, req.Spec.DNSReservationID)
+		if apiErr != nil {
+			writeAPIError(w, *apiErr, h.logger)
+			return
+		}
 	}
 	oidcConfig, apiErr := h.resolveOidcConfig(ctx, accountID, req.Spec.OidcConfigID)
 	if apiErr != nil {
@@ -184,7 +184,9 @@ func (h *ClusterHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Namespace = "account-" + accountID
-	req.Spec.DNSReservationID = string(dnsReservation.UID)
+	if dnsReservation != nil {
+		req.Spec.DNSReservationID = string(dnsReservation.UID)
+	}
 	if oidcConfig != nil {
 		req.Spec.OidcConfigID = string(oidcConfig.UID)
 	}
@@ -230,14 +232,18 @@ func (h *ClusterHandler) completeClusterCreate(ctx context.Context, accountID, c
 		cluster.Spec.HostedCluster.IssuerURL = issuerURL
 	}
 
-	if apiErr := h.claimDNSReservation(ctx, accountID, string(reservation.UID), clusterUID); apiErr != nil {
-		h.rollbackCreatedCluster(ctx, accountID, clusterName, clusterUID)
-		return nil, apiErr
+	if reservation != nil {
+		if apiErr := h.claimDNSReservation(ctx, accountID, string(reservation.UID), clusterUID); apiErr != nil {
+			h.rollbackCreatedCluster(ctx, accountID, clusterName, clusterUID)
+			return nil, apiErr
+		}
 	}
 	if oidcConfig != nil {
 		if apiErr := h.claimOidcConfig(ctx, accountID, string(oidcConfig.UID), clusterUID); apiErr != nil {
-			if cleanupErr := h.releaseDNSReservationClaim(ctx, accountID, string(reservation.UID), clusterUID); cleanupErr != nil {
-				h.logger.Error("failed to release DNS reservation after OIDC claim conflict", "error", cleanupErr, "reservation_uid", reservation.UID, "cluster_uid", clusterUID)
+			if reservation != nil {
+				if cleanupErr := h.releaseDNSReservationClaim(ctx, accountID, string(reservation.UID), clusterUID); cleanupErr != nil {
+					h.logger.Error("failed to release DNS reservation after OIDC claim conflict", "error", cleanupErr, "reservation_uid", reservation.UID, "cluster_uid", clusterUID)
+				}
 			}
 			h.rollbackCreatedCluster(ctx, accountID, clusterName, clusterUID)
 			return nil, apiErr

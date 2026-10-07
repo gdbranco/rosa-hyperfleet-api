@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
+	public "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1/public"
 	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/clients/hyperfleetdb"
@@ -294,6 +295,39 @@ func TestClusterHandler_Create_Success(t *testing.T) {
 	}
 	if name := metaField(result, "name"); name != "my-cluster" {
 		t.Errorf("expected metadata.name=my-cluster, got %v", name)
+	}
+}
+
+func TestClusterHandler_Create_WithoutDNSReservationDefersAllocationToOperator(t *testing.T) {
+	scheme := newTestScheme()
+	fc := newClusterTestClientBuilder(scheme).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewClusterHandler(hyperfleetdb.NewClientFrom(fc, logger), "", 0, logger)
+
+	spec := map[string]any{"hostedCluster": minSpec["hostedCluster"]}
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/clusters", bytes.NewReader(clusterBody("my-cluster", spec)))
+	req = req.WithContext(testContext(testAccountID))
+
+	w := httptest.NewRecorder()
+	handler.Create(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 when dnsReservationId is omitted, got %d: %s", w.Code, w.Body.String())
+	}
+	var response public.Cluster
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("decode Cluster response: %v", err)
+	}
+	if response.Spec.DNSReservationID != "" {
+		t.Errorf("DNSReservationID = %q before operator fallback, want empty", response.Spec.DNSReservationID)
+	}
+
+	stored, err := hyperfleetdb.NewClientFrom(fc, logger).GetCluster(context.Background(), testAccountID, "my-cluster")
+	if err != nil {
+		t.Fatalf("get created Cluster: %v", err)
+	}
+	if stored.Spec.DNSReservationID != "" {
+		t.Errorf("stored DNSReservationID = %q before operator fallback, want empty", stored.Spec.DNSReservationID)
 	}
 }
 

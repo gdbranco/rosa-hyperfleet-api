@@ -152,7 +152,9 @@ constraints:
   `metadata.name`; create needs no customer-selected spec fields. The operator uses
   the regional default DNS zone and shard `0` and reports the assigned domain in
   status. Unclaimed reservations stay reserved until explicit deletion. Cluster
-  create accepts the reservation UID and persists that UID as its internal reference.
+  create may bind a pre-created reservation by UID; when omitted, the Cluster
+  reconciler creates and claims a DNSReservation automatically and stores its UID on
+  the Cluster, preserving the legacy on-demand allocation flow.
 - **DNS reservation identity and claim:** Cluster references the reservation by UID;
   the reservation's Index uses `owner-uid=<DNSReservation UID>`, and the mutable
   reservation claim uses `claimed-by-cluster-uid=<Cluster UID>`. On Cluster deletion,

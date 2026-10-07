@@ -2151,8 +2151,9 @@ components:
               type: boolean
           dnsReservationId:
               description: |-
-                  DNSReservationID is the UID of the account-scoped DNSReservation to bind
-                  to this Cluster. Immutable after creation.
+                  DNSReservationID is the UID of an account-scoped DNSReservation to bind to
+                  this Cluster. If omitted, the operator allocates and binds one automatically.
+                  Immutable after creation.
               type: string
           expirationTimestamp:
               description: ExpirationTimestamp marks when this cluster should be automatically deleted.
@@ -2186,7 +2187,6 @@ components:
               maxProperties: 23
               type: object
       required:
-          - dnsReservationId
           - hostedCluster
       type: object
     NodePoolSpec:
@@ -2328,8 +2328,9 @@ components:
                       type: boolean
                   dnsReservationId:
                       description: |-
-                          DNSReservationID is the UID of the account-scoped DNSReservation to bind
-                          to this Cluster. Immutable after creation.
+                          DNSReservationID is the UID of an account-scoped DNSReservation to bind to
+                          this Cluster. If omitted, the operator allocates and binds one automatically.
+                          Immutable after creation.
                       type: string
                   expirationTimestamp:
                       description: ExpirationTimestamp marks when this cluster should be automatically deleted.
@@ -4699,7 +4700,6 @@ components:
                       maxProperties: 23
                       type: object
               required:
-                  - dnsReservationId
                   - hostedCluster
               type: object
           status:
@@ -4978,8 +4978,9 @@ components:
                                   type: boolean
                               dnsReservationId:
                                   description: |-
-                                      DNSReservationID is the UID of the account-scoped DNSReservation to bind
-                                      to this Cluster. Immutable after creation.
+                                      DNSReservationID is the UID of an account-scoped DNSReservation to bind to
+                                      this Cluster. If omitted, the operator allocates and binds one automatically.
+                                      Immutable after creation.
                                   type: string
                               expirationTimestamp:
                                   description: ExpirationTimestamp marks when this cluster should be automatically deleted.
@@ -7349,7 +7350,6 @@ components:
                                   maxProperties: 23
                                   type: object
                           required:
-                              - dnsReservationId
                               - hostedCluster
                           type: object
                       status:

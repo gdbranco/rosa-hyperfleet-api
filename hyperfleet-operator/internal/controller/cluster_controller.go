@@ -182,6 +182,95 @@ func (r *ClusterReconciler) confirmedDNSReservation(ctx context.Context, cluster
 	return reservation.Status.BaseDomain, true, nil
 }
 
+// ensureAutomaticDNSReservation preserves the legacy Cluster-create flow when a
+// client does not supply a pre-created DNSReservation. The deterministic name
+// and Cluster UID claim make retries recover the same reservation.
+func (r *ClusterReconciler) ensureAutomaticDNSReservation(ctx context.Context, cluster *hyperfleetv1alpha1.Cluster) error {
+	accountID := cluster.Spec.AccountID
+	if accountID == "" {
+		accountID = cluster.Labels[accountIDLabel]
+	}
+	clusterUID := string(cluster.UID)
+	if accountID == "" || clusterUID == "" {
+		return fmt.Errorf("cluster %s/%s needs account ID and database UID for automatic DNS reservation", cluster.Namespace, cluster.Name)
+	}
+
+	key := types.NamespacedName{
+		Namespace: accountNamespace(accountID),
+		Name:      automaticDNSReservationName(cluster.Name, clusterUID),
+	}
+	var reservation hyperfleetv1alpha1.DNSReservation
+	if err := r.Get(ctx, key, &reservation); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("get automatic DNSReservation %s/%s: %w", key.Namespace, key.Name, err)
+		}
+
+		reservation = hyperfleetv1alpha1.DNSReservation{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: key.Namespace,
+				Name:      key.Name,
+				Labels: map[string]string{
+					accountIDLabel:           accountID,
+					claimedByClusterUIDLabel: clusterUID,
+				},
+			},
+			Spec: hyperfleetv1alpha1.DNSReservationSpec{},
+		}
+		if err := r.Create(ctx, &reservation); err != nil {
+			if !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("create automatic DNSReservation %s/%s: %w", key.Namespace, key.Name, err)
+			}
+			if err := r.Get(ctx, key, &reservation); err != nil {
+				return fmt.Errorf("recover automatic DNSReservation %s/%s after create collision: %w", key.Namespace, key.Name, err)
+			}
+		}
+	}
+	if reservation.Labels[accountIDLabel] != accountID || reservation.Labels[claimedByClusterUIDLabel] != clusterUID {
+		return fmt.Errorf("automatic DNSReservation %s/%s is not claimed by Cluster UID %s", key.Namespace, key.Name, clusterUID)
+	}
+	if reservation.UID == "" {
+		return fmt.Errorf("automatic DNSReservation %s/%s has no database UID", key.Namespace, key.Name)
+	}
+
+	cluster.Spec.DNSReservationID = string(reservation.UID)
+	if err := r.Update(ctx, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return fmt.Errorf("set automatic DNSReservation UID on Cluster %s/%s: %w", cluster.Namespace, cluster.Name, err)
+	}
+	return nil
+}
+
+func automaticDNSReservationName(clusterName, clusterUID string) string {
+	return fmt.Sprintf("%s-auto-dns-%s", clusterName, clusterUID)
+}
+
+func (r *ClusterReconciler) reconcileDNSReservation(ctx context.Context, cluster *hyperfleetv1alpha1.Cluster) (string, bool, ctrl.Result, error) {
+	if cluster.Spec.DNSReservationID == "" {
+		if err := r.ensureAutomaticDNSReservation(ctx, cluster); err != nil {
+			return "", false, ctrl.Result{}, fmt.Errorf("ensure automatic DNS reservation: %w", err)
+		}
+		return "", false, ctrl.Result{}, nil
+	}
+
+	baseDomain, claimsConfirmed, err := r.confirmedDNSReservation(ctx, cluster)
+	if err != nil {
+		return "", false, ctrl.Result{}, fmt.Errorf("verify Cluster claims: %w", err)
+	}
+	if !claimsConfirmed {
+		logf.FromContext(ctx).Info("Waiting for DNS and OIDC claims to be confirmed", "cluster", cluster.Name)
+		return "", false, ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+	if cluster.Status.BaseDomain != baseDomain {
+		if err := r.persistBaseDomain(ctx, cluster, baseDomain); err != nil {
+			return "", false, ctrl.Result{}, fmt.Errorf("persist reservation base domain: %w", err)
+		}
+		return "", false, ctrl.Result{}, nil
+	}
+	return baseDomain, true, ctrl.Result{}, nil
+}
+
 func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -208,19 +297,12 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	baseDomain, claimsConfirmed, err := r.confirmedDNSReservation(ctx, &cluster)
+	baseDomain, dnsReady, dnsResult, err := r.reconcileDNSReservation(ctx, &cluster)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("verify Cluster claims: %w", err)
+		return ctrl.Result{}, err
 	}
-	if !claimsConfirmed {
-		log.Info("Waiting for DNS and OIDC claims to be confirmed", "cluster", cluster.Name)
-		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-	}
-	if cluster.Status.BaseDomain != baseDomain {
-		if err := r.persistBaseDomain(ctx, &cluster, baseDomain); err != nil {
-			return ctrl.Result{}, fmt.Errorf("persist reservation base domain: %w", err)
-		}
-		return ctrl.Result{}, nil
+	if !dnsReady {
+		return dnsResult, nil
 	}
 
 	if expired, err := r.deleteIfExpired(ctx, &cluster); expired {
@@ -548,20 +630,23 @@ func (r *ClusterReconciler) cleanupAndRemoveFinalizer(ctx context.Context, clust
 		}
 	}
 
-	// Delete the claimed DNSReservation by UID. Its own finalizer releases only
-	// Indexes whose owner-uid matches that reservation's database UID.
-	if cluster.Spec.DNSReservationID != "" {
+	// Delete DNSReservations claimed by this Cluster UID. The UID reference is
+	// preferred, while the claim label also catches an automatic reservation
+	// created just before the Cluster reference was persisted.
+	if cluster.Spec.DNSReservationID != "" || cluster.UID != "" {
 		accountID := cluster.Spec.AccountID
 		if accountID == "" {
 			accountID = cluster.Labels[accountIDLabel]
 		}
 		var reservations hyperfleetv1alpha1.DNSReservationList
 		if err := r.List(ctx, &reservations, client.InNamespace(accountNamespace(accountID))); err != nil {
-			return ctrl.Result{}, fmt.Errorf("find claimed DNSReservation by UID: %w", err)
+			return ctrl.Result{}, fmt.Errorf("find claimed DNSReservations for Cluster UID %s: %w", cluster.UID, err)
 		}
 		for i := range reservations.Items {
 			reservation := &reservations.Items[i]
-			if string(reservation.UID) != cluster.Spec.DNSReservationID {
+			matchesReference := cluster.Spec.DNSReservationID != "" && string(reservation.UID) == cluster.Spec.DNSReservationID
+			matchesClaim := cluster.UID != "" && reservation.Labels[claimedByClusterUIDLabel] == string(cluster.UID)
+			if !matchesReference && !matchesClaim {
 				continue
 			}
 			if reservation.DeletionTimestamp.IsZero() {
