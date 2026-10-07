@@ -38,8 +38,8 @@ var _ = Describe("NodePool Controller", func() {
 	Context("When reconciling a NodePool", func() {
 		const (
 			clusterName  = "test-np-cluster"
-			nodePoolName = "test-nodepool"
-			testNS       = "cluster-test-cluster-id"
+			nodePoolName = "test-np-cluster.workers"
+			testNS       = "account-123456789012"
 		)
 
 		ctx := context.Background()
@@ -62,7 +62,7 @@ var _ = Describe("NodePool Controller", func() {
 				_ = k8sClient.Delete(ctx, cluster)
 			}
 			placement := &hyperfleetv1alpha1.Placement{}
-			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName + "-placement"}, placement); err == nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName + ".placement"}, placement); err == nil {
 				_ = k8sClient.Delete(ctx, placement)
 			}
 		})
@@ -71,7 +71,7 @@ var _ = Describe("NodePool Controller", func() {
 			cluster := newTestCluster(clusterName)
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			reconciler := &NodePoolReconciler{
@@ -96,7 +96,7 @@ var _ = Describe("NodePool Controller", func() {
 			cluster := newTestCluster(clusterName)
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			fd := &fakeDynamo{}
@@ -125,12 +125,12 @@ var _ = Describe("NodePool Controller", func() {
 
 			// Set placementRef on the cluster status.
 			cluster.Status.PlacementRef = &hyperfleetv1alpha1.PlacementReference{
-				Name:              clusterName + "-placement",
+				Name:              clusterName + ".placement",
 				ManagementCluster: "mc01",
 			}
 			Expect(k8sClient.Status().Update(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			fd := &fakeDynamo{}
@@ -157,12 +157,12 @@ var _ = Describe("NodePool Controller", func() {
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
 			cluster.Status.PlacementRef = &hyperfleetv1alpha1.PlacementReference{
-				Name:              clusterName + "-placement",
+				Name:              clusterName + ".placement",
 				ManagementCluster: "mc01",
 			}
 			Expect(k8sClient.Status().Update(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			fd := &fakeDynamo{}
@@ -226,12 +226,12 @@ var _ = Describe("NodePool Controller", func() {
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
 			cluster.Status.PlacementRef = &hyperfleetv1alpha1.PlacementReference{
-				Name:              clusterName + "-placement",
+				Name:              clusterName + ".placement",
 				ManagementCluster: "mc01",
 			}
 			Expect(k8sClient.Status().Update(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			fd := &fakeDynamo{}
@@ -260,12 +260,12 @@ var _ = Describe("NodePool Controller", func() {
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
 			cluster.Status.PlacementRef = &hyperfleetv1alpha1.PlacementReference{
-				Name:              clusterName + "-placement",
+				Name:              clusterName + ".placement",
 				ManagementCluster: "mc01",
 			}
 			Expect(k8sClient.Status().Update(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			fd := &fakeDynamo{
@@ -340,12 +340,12 @@ var _ = Describe("NodePool Controller", func() {
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
 			cluster.Status.PlacementRef = &hyperfleetv1alpha1.PlacementReference{
-				Name:              clusterName + "-placement",
+				Name:              clusterName + ".placement",
 				ManagementCluster: "mc01",
 			}
 			Expect(k8sClient.Status().Update(ctx, cluster)).To(Succeed())
 
-			np := newTestNodePool()
+			np := newTestNodePool(cluster)
 			Expect(k8sClient.Create(ctx, np)).To(Succeed())
 
 			fd := &fakeDynamo{
@@ -388,11 +388,11 @@ var _ = Describe("NodePool Controller", func() {
 	})
 })
 
-func newTestNodePool() *hyperfleetv1alpha1.NodePool {
-	return &hyperfleetv1alpha1.NodePool{
+func newTestNodePool(parents ...*hyperfleetv1alpha1.Cluster) *hyperfleetv1alpha1.NodePool {
+	nodePool := &hyperfleetv1alpha1.NodePool{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-nodepool",
-			Namespace: "cluster-test-cluster-id",
+			Name:      "test-np-cluster.workers",
+			Namespace: "account-123456789012",
 		},
 		Spec: hyperfleetv1alpha1.NodePoolSpec{
 			NodePool: hyperfleetv1alpha1.NodePoolSpecPassthrough{
@@ -422,4 +422,10 @@ func newTestNodePool() *hyperfleetv1alpha1.NodePool {
 			},
 		},
 	}
+	if len(parents) > 0 && parents[0] != nil {
+		parent := parents[0]
+		nodePool.Labels = map[string]string{clusterUIDLabel: string(parent.UID)}
+		nodePool.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(parent, hyperfleetv1alpha1.GroupVersion.WithKind("Cluster"))}
+	}
+	return nodePool
 }

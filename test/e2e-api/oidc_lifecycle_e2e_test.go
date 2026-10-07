@@ -60,9 +60,7 @@ func clusterIssuerURL(cluster map[string]any) string {
 	return url
 }
 
-// uniqueClusterName returns a short, unique-enough cluster name that fits within
-// hyperfleetdb.MaxClusterNameLen (18 chars, since HyperShift expands it into
-// "cluster-<uuid>-<name>" which must fit a 63-char k8s namespace name).
+// uniqueClusterName returns a short, unique-enough DNS-label cluster name.
 func uniqueClusterName(tag string) string {
 	return fmt.Sprintf("e2e%s%d", tag, time.Now().UnixMilli())
 }

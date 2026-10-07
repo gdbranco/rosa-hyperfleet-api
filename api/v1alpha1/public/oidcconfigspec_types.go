@@ -3,8 +3,8 @@
 package public
 
 // OidcConfigSpec defines the desired state of an OidcConfig.
-// +kubebuilder:validation:XValidation:rule="self.type != 'managed' || (self.secretArn == ” && self.installerRoleArn == ”)",message="managed type must not set secretArn or installerRoleArn"
-// +kubebuilder:validation:XValidation:rule="self.type != 'unmanaged' || (self.secretArn != ” && self.installerRoleArn != ”)",message="unmanaged type requires secretArn and installerRoleArn"
+// +kubebuilder:validation:XValidation:rule="self.type != 'managed' || (size(self.secretArn) == 0 && size(self.installerRoleArn) == 0)",message="managed type must not set secretArn or installerRoleArn"
+// +kubebuilder:validation:XValidation:rule="self.type != 'unmanaged' || (size(self.secretArn) > 0 && size(self.installerRoleArn) > 0)",message="unmanaged type requires secretArn and installerRoleArn"
 // +kubebuilder:validation:XValidation:rule="self.type == oldSelf.type",message="spec.type is immutable"
 // +kubebuilder:validation:XValidation:rule="self.secretArn == oldSelf.secretArn",message="spec.secretArn is immutable"
 // +kubebuilder:validation:XValidation:rule="self.installerRoleArn == oldSelf.installerRoleArn",message="spec.installerRoleArn is immutable"

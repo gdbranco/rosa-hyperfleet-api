@@ -20,10 +20,11 @@ import (
 // ClusterResources generates the Kubernetes resources for a cluster on the MC.
 // baseDomain is the fully assembled DNS base domain from the DNSReservation
 // (e.g. "f7a3.0.openshiftapps.com").
-func ClusterResources(cluster *hyperfleetv1alpha1.Cluster, oidcSigningKeyExternal bool, baseDomain, controlPlaneOperatorImage string) ([]Resource, error) {
-	clusterID := ClusterIDFromNamespace(cluster.Namespace)
+func ClusterResources(cluster *hyperfleetv1alpha1.Cluster, oidcSigningKeyExternal bool,
+	baseDomain, controlPlaneOperatorImage string) ([]Resource, error) {
+	clusterID := string(cluster.UID)
 	clusterName := cluster.Name // human-readable
-	ns := cluster.Namespace     // already "cluster-<uuid>"
+	ns := ManagementNamespace(clusterID)
 
 	hc, err := hostedCluster(cluster, oidcSigningKeyExternal, baseDomain, controlPlaneOperatorImage)
 	if err != nil {
@@ -240,10 +241,11 @@ func extractUUIDFromIssuerURL(issuerURL string) string {
 	return ""
 }
 
-func hostedCluster(cluster *hyperfleetv1alpha1.Cluster, oidcSigningKeyExternal bool, baseDomain, controlPlaneOperatorImage string) (Resource, error) {
-	clusterID := ClusterIDFromNamespace(cluster.Namespace)
+func hostedCluster(cluster *hyperfleetv1alpha1.Cluster, oidcSigningKeyExternal bool,
+	baseDomain, controlPlaneOperatorImage string) (Resource, error) {
+	clusterID := string(cluster.UID)
 	clusterName := cluster.Name // human-readable
-	ns := cluster.Namespace     // already "cluster-<uuid>"
+	ns := ManagementNamespace(clusterID)
 	apiHost := fmt.Sprintf("api.%s.%s", clusterName, baseDomain)
 
 	hcSpec, err := toHostedClusterSpec(&cluster.Spec.HostedCluster)

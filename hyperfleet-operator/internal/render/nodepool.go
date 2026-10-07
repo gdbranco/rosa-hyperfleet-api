@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"strings"
 
 	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,10 +15,10 @@ const defaultRootVolumeSizeGiB int64 = 300
 
 // NodePoolResource generates the HyperShift NodePool resource for the MC.
 func NodePoolResource(nodePool *hyperfleetv1alpha1.NodePool, cluster *hyperfleetv1alpha1.Cluster) (Resource, error) {
-	clusterID := ClusterIDFromNamespace(cluster.Namespace)
+	clusterID := string(cluster.UID)
 	clusterName := cluster.Name // human-readable
-	ns := cluster.Namespace     // already "cluster-<uuid>"
-	npName := fmt.Sprintf("%s-%s", clusterName, nodePool.Name)
+	ns := ManagementNamespace(clusterID)
+	npName := strings.TrimPrefix(nodePool.Name, clusterName+".")
 
 	npSpec, err := toNodePoolSpec(&nodePool.Spec.NodePool)
 	if err != nil {
