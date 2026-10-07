@@ -138,6 +138,27 @@ func TestClusterResourcesTypes(t *testing.T) {
 	}
 }
 
+func TestClusterResourcesRenderIntoUIDManagementNamespace(t *testing.T) {
+	cluster := testCluster()
+	resources, err := ClusterResources(cluster, false, "f7a3.0.example.com", "")
+	if err != nil {
+		t.Fatalf("ClusterResources: %v", err)
+	}
+	wantNamespace := ManagementNamespace(string(cluster.UID))
+	for _, resource := range resources {
+		if resource.Resource == "namespaces" {
+			namespace := resource.Object.(*corev1.Namespace)
+			if namespace.Name != wantNamespace {
+				t.Errorf("rendered namespace name = %q, want %q", namespace.Name, wantNamespace)
+			}
+			continue
+		}
+		if resource.Namespace != wantNamespace {
+			t.Errorf("resource %s/%s namespace = %q, want %q", resource.Resource, resource.Name, resource.Namespace, wantNamespace)
+		}
+	}
+}
+
 // TestClusterResourcesWithOidcConfig verifies the OIDC signing key
 // ExternalSecret and ServiceAccountSigningKey reference are rendered when the
 // referenced OidcConfig is type=unmanaged (oidcSigningKeyExternal=true).

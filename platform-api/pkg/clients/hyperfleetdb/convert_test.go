@@ -220,7 +220,7 @@ func TestPublicToInternalCluster_IgnoresProxyProjection(t *testing.T) {
 			},
 		},
 	}
-	cr := PublicToInternalCluster(pub, testAccountID, testClusterID)
+	cr := PublicToInternalCluster(pub, testAccountID)
 	assert.Equal(t, "http://canonical.example.com", cr.Spec.HostedCluster.Configuration.Proxy.HTTPProxy)
 	assert.Equal(t, "http://canonical.example.com", InternalToPublicCluster(cr).Proxy.HTTPProxy)
 }
