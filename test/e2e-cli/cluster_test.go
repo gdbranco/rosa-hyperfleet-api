@@ -637,17 +637,14 @@ var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 	})
 
 	It("should be able to create a nodepool via CLI", Label("nodepool-create", "monitor"), func() {
-		id := clusterID
-		if id == "" {
-			id = os.Getenv("HCP_INSTANCE_ID")
-		}
-		Expect(id).ToNot(BeEmpty(), "clusterID required — run full Ordered suite or set HCP_INSTANCE_ID")
+		name := getPlatformClusterName()
+		Expect(name).ToNot(BeEmpty(), "set HCP_CLUSTER_NAME when running nodepool-create alone")
 
-		npName := "e2e-np-" + clusterName
-		GinkgoWriter.Printf("Creating nodepool %s for cluster %s\n", npName, id)
+		npName := name + ".e2e-np"
+		GinkgoWriter.Printf("Creating nodepool %s for cluster %s\n", npName, name)
 
 		cmd := exec.Command(ROSACTL_BIN, "nodepool", "create", npName,
-			"--cluster-id", id,
+			"--cluster-name", name,
 			"--region", region,
 			"--output", "json",
 		)
@@ -668,14 +665,11 @@ var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 	})
 
 	It("should be able to list nodepools via CLI", Label("nodepool-list", "monitor"), func() {
-		id := clusterID
-		if id == "" {
-			id = os.Getenv("HCP_INSTANCE_ID")
-		}
-		Expect(id).ToNot(BeEmpty(), "clusterID required — run full Ordered suite or set HCP_INSTANCE_ID")
+		name := getPlatformClusterName()
+		Expect(name).ToNot(BeEmpty(), "set HCP_CLUSTER_NAME when running nodepool-list alone")
 
 		cmd := exec.Command(ROSACTL_BIN, "nodepool", "list",
-			"--cluster-id", id,
+			"--cluster-name", name,
 			"--region", region,
 			"--output", "json",
 		)
@@ -699,7 +693,7 @@ var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 			Expect(found).To(BeTrue(), "created nodepool %s should appear in list", nodepoolID)
 		}
 
-		GinkgoWriter.Printf("Listed %d nodepools for cluster %s\n", len(nodepools), id)
+		GinkgoWriter.Printf("Listed %d nodepools for cluster %s\n", len(nodepools), name)
 	})
 
 	It("should have valid DNS and TLS for the KAS endpoint", Label("dns-verify", "monitor"), func() {
@@ -807,15 +801,11 @@ var _ = Describe("ROSACTL CLI E2E Tests", Ordered, func() {
 		}
 		GinkgoWriter.Printf("Deleting nodepool %s\n", nodepoolName)
 
-		// Get cluster ID for the nodepool delete command
-		id := clusterID
-		if id == "" {
-			id = os.Getenv("HCP_INSTANCE_ID")
-		}
-		Expect(id).ToNot(BeEmpty(), "clusterID required for nodepool delete")
+		name := getPlatformClusterName()
+		Expect(name).ToNot(BeEmpty(), "cluster name required for nodepool delete")
 
 		cmd := exec.Command(ROSACTL_BIN, "nodepool", "delete", nodepoolName,
-			"--cluster-id", id,
+			"--cluster-name", name,
 			"--region", region,
 		)
 		cmd.Env = append(os.Environ(), customerEnv()...)

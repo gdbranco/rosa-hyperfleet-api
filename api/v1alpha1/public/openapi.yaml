@@ -9695,7 +9695,7 @@ components:
               type: object
               x-kubernetes-validations:
                   - message: managed type must not set secretArn or installerRoleArn
-                    rule: self.type != 'managed' || (size(self.secretArn) == 0 && size(self.installerRoleArn) == 0)
+                    rule: self.type != 'managed' || ((!has(self.secretArn) || size(self.secretArn) == 0) && (!has(self.installerRoleArn) || size(self.installerRoleArn) == 0))
                   - message: unmanaged type requires secretArn and installerRoleArn
                     rule: self.type != 'unmanaged' || (size(self.secretArn) > 0 && size(self.installerRoleArn) > 0)
                   - message: spec.type is immutable
@@ -9864,7 +9864,7 @@ components:
                           type: object
                           x-kubernetes-validations:
                               - message: managed type must not set secretArn or installerRoleArn
-                                rule: self.type != 'managed' || (size(self.secretArn) == 0 && size(self.installerRoleArn) == 0)
+                                rule: self.type != 'managed' || ((!has(self.secretArn) || size(self.secretArn) == 0) && (!has(self.installerRoleArn) || size(self.installerRoleArn) == 0))
                               - message: unmanaged type requires secretArn and installerRoleArn
                                 rule: self.type != 'unmanaged' || (size(self.secretArn) > 0 && size(self.installerRoleArn) > 0)
                               - message: spec.type is immutable
