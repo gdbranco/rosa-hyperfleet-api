@@ -736,6 +736,80 @@ func TestClusterHandler_Create_ConcurrentOidcConfigCollision(t *testing.T) {
 	}
 }
 
+func TestClusterHandler_Create_OidcClaimFailureRegistersCleanupBeforeRollback(t *testing.T) {
+	scheme := newTestScheme()
+	oidcConfig := testReadyOidcConfig(testOidcConfigID, testAccountID, testOidcConfigIssuerURL)
+	oidcConfig.Labels = map[string]string{claimedByClusterUIDLabel: "another-cluster-uid"}
+	releaseAttempts := 0
+	clusterFinalizerPersisted := false
+	clusterDeleteSawFinalizer := false
+	fc := newClusterTestClientBuilder(scheme).WithObjects(oidcConfig).WithStatusSubresource(oidcConfig).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			switch resource := obj.(type) {
+			case *hyperfleetv1alpha1.DNSReservation:
+				if resource.Labels[claimedByClusterUIDLabel] == "" {
+					releaseAttempts++
+					return errors.New("simulated DNS reservation release failure")
+				}
+			case *hyperfleetv1alpha1.Cluster:
+				for _, finalizer := range resource.Finalizers {
+					if finalizer == clusterCleanupFinalizer {
+						if err := c.Update(ctx, obj, opts...); err != nil {
+							return err
+						}
+						clusterFinalizerPersisted = true
+						return nil
+					}
+				}
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if cluster, ok := obj.(*hyperfleetv1alpha1.Cluster); ok {
+				hasFinalizer := false
+				for _, finalizer := range cluster.Finalizers {
+					if finalizer == clusterCleanupFinalizer {
+						hasFinalizer = true
+						break
+					}
+				}
+				clusterDeleteSawFinalizer = clusterFinalizerPersisted && hasFinalizer
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	}).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewClusterHandler(hyperfleetdb.NewClientFrom(fc, logger), "", 0, logger)
+	cluster := testClusterCR("rollback-cluster-uid", "rollback-cluster", testAccountID)
+	cluster.Spec.OidcConfigID = string(oidcConfig.UID)
+	if err := handler.db.CreateCluster(context.Background(), testAccountID, cluster); err != nil {
+		t.Fatalf("create Cluster: %v", err)
+	}
+	reservation, err := handler.db.GetDNSReservationByUID(context.Background(), testAccountID, testDNSReservationUID)
+	if err != nil {
+		t.Fatalf("get DNS reservation: %v", err)
+	}
+
+	_, apiErr := handler.completeClusterCreate(context.Background(), testAccountID, cluster.Name, cluster, reservation, oidcConfig)
+	if apiErr == nil || apiErr.Code != ErrClusterCreateOidcConfigInUse.Code {
+		t.Fatalf("completeClusterCreate API error = %v, want %s", apiErr, ErrClusterCreateOidcConfigInUse.Code)
+	}
+	if releaseAttempts == 0 {
+		t.Fatal("expected DNS reservation release to be attempted")
+	}
+	if !clusterDeleteSawFinalizer {
+		t.Fatal("Cluster rollback proceeded without a persisted operator cleanup finalizer")
+	}
+
+	reservation, err = handler.db.GetDNSReservationByUID(context.Background(), testAccountID, testDNSReservationUID)
+	if err != nil {
+		t.Fatalf("get DNS reservation after rollback: %v", err)
+	}
+	if got := reservation.Labels[claimedByClusterUIDLabel]; got != string(cluster.UID) {
+		t.Fatalf("reservation claim = %q, want still owned by Cluster UID %q until operator cleanup", got, cluster.UID)
+	}
+}
+
 func TestClusterHandler_ClaimDNSReservationRetriesUpdateConflict(t *testing.T) {
 	scheme := newTestScheme()
 	updateCalls := 0

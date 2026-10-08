@@ -24,9 +24,12 @@ import (
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/validation"
 )
 
-const clusterUIDLabel = "hyperfleet.io/cluster-uid"
+const (
+	clusterUIDLabel         = "hyperfleet.io/cluster-uid"
+	clusterCleanupFinalizer = "hyperfleet.io/cluster" // keep in sync with the operator's Cluster finalizer
+)
 
-// releaseClaimTimeout bounds releaseOidcConfigClaim's detached rollback so a canceled request can't skip it.
+// releaseClaimTimeout bounds detached claim cleanup and rollback work so a canceled request can't skip it.
 const releaseClaimTimeout = 5 * time.Second
 
 // ClusterHandler handles cluster-related HTTP requests
@@ -242,7 +245,11 @@ func (h *ClusterHandler) completeClusterCreate(ctx context.Context, accountID, c
 		if apiErr := h.claimOidcConfig(ctx, accountID, string(oidcConfig.UID), clusterUID); apiErr != nil {
 			if reservation != nil {
 				if cleanupErr := h.releaseDNSReservationClaim(ctx, accountID, string(reservation.UID), clusterUID); cleanupErr != nil {
-					h.logger.Error("failed to release DNS reservation after OIDC claim conflict", "error", cleanupErr, "reservation_uid", reservation.UID, "cluster_uid", clusterUID)
+					h.logger.Error("failed to release DNS reservation after OIDC claim conflict; registering operator cleanup before rollback", "error", cleanupErr, "reservation_uid", reservation.UID, "cluster_uid", clusterUID)
+					if finalizerErr := h.ensureClusterCleanupFinalizer(ctx, accountID, clusterName, clusterUID); finalizerErr != nil {
+						h.logger.Error("failed to register Cluster cleanup finalizer; leaving the Cluster in place to preserve DNS claim ownership", "error", finalizerErr, "reservation_uid", reservation.UID, "cluster_uid", clusterUID)
+						return nil, &ErrClusterCreateFailed
+					}
 				}
 			}
 			h.rollbackCreatedCluster(ctx, accountID, clusterName, clusterUID)
@@ -257,6 +264,30 @@ func (h *ClusterHandler) completeClusterCreate(ctx context.Context, accountID, c
 		cluster = latest
 	}
 	return cluster, nil
+}
+
+// ensureClusterCleanupFinalizer durably registers the operator's delete cleanup
+// before a failed OIDC claim can roll back a Cluster that still owns a DNS claim.
+func (h *ClusterHandler) ensureClusterCleanupFinalizer(ctx context.Context, accountID, clusterName, clusterUID string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseClaimTimeout)
+	defer cancel()
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		cluster, err := h.db.GetCluster(cleanupCtx, accountID, clusterName)
+		if err != nil {
+			return err
+		}
+		if string(cluster.UID) != clusterUID {
+			return fmt.Errorf("cluster UID changed from %s to %s before registering cleanup", clusterUID, cluster.UID)
+		}
+		for _, finalizer := range cluster.Finalizers {
+			if finalizer == clusterCleanupFinalizer {
+				return nil
+			}
+		}
+		cluster.Finalizers = append(cluster.Finalizers, clusterCleanupFinalizer)
+		return h.db.UpdateCluster(cleanupCtx, cluster)
+	})
 }
 
 func (h *ClusterHandler) updateManagedIssuerURL(ctx context.Context, accountID, clusterName, clusterUID, issuerURL string) error {
