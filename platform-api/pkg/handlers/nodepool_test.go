@@ -20,6 +20,7 @@ import (
 
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
 	"github.com/openshift-online/rosa-hyperfleet-api/platform-api/pkg/clients/hyperfleetdb"
+	hypershiftv1beta1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 )
 
 func testNodePoolCR(npName, accountID string) *hyperfleetv1alpha1.NodePool {
@@ -78,6 +79,51 @@ func TestNodePoolHandler_Update_MissingSpec(t *testing.T) {
 				t.Errorf("expected non-empty error message")
 			}
 		})
+	}
+}
+
+func TestNodePoolHandler_Update_AllowsUnchangedServiceManagedManagement(t *testing.T) {
+	autoRepair := true
+	replicas := int32(2)
+	nodePool := testNodePoolCR("my-cluster.workers", testAccountID)
+	nodePool.Spec = hyperfleetv1alpha1.NodePoolSpec{
+		AutoRepair: &autoRepair,
+		NodePool: hyperfleetv1alpha1.NodePoolSpecPassthrough{
+			ClusterName: "my-cluster",
+			Replicas:    &replicas,
+			Management: hypershiftv1beta1.NodePoolManagement{
+				AutoRepair: true,
+			},
+		},
+	}
+
+	scheme := newTestScheme()
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(nodePool).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewNodePoolHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
+	request := hyperfleetdb.InternalToPublicNodePool(nodePool)
+	updatedReplicas := int32(3)
+	request.Spec.NodePool.Replicas = &updatedReplicas
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v0/nodepools/"+nodePool.Name, bytes.NewReader(mustMarshal(t, request)))
+	req = req.WithContext(testContext(testAccountID))
+	req = mux.SetURLVars(req, map[string]string{"id": nodePool.Name})
+	w := httptest.NewRecorder()
+
+	handler.Update(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var updated hyperfleetv1alpha1.NodePool
+	if err := fc.Get(context.Background(), types.NamespacedName{Namespace: nodePool.Namespace, Name: nodePool.Name}, &updated); err != nil {
+		t.Fatalf("get updated NodePool: %v", err)
+	}
+	if got := updated.Spec.NodePool.Replicas; got == nil || *got != updatedReplicas {
+		t.Errorf("replicas = %v, want %d", got, updatedReplicas)
+	}
+	if !updated.Spec.NodePool.Management.AutoRepair {
+		t.Error("round-trip update changed service-managed management.autoRepair")
 	}
 }
 
