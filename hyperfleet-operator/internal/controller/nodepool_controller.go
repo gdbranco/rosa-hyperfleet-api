@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -47,10 +49,12 @@ const (
 	nodePoolFinalizer = "hyperfleet.io/nodepool"
 )
 
+var errNodePoolClusterOwnerMissing = errors.New("no Cluster controller ownerReference")
+
 func (r *NodePoolReconciler) parentCluster(ctx context.Context, nodePool *hyperfleetv1alpha1.NodePool) (*hyperfleetv1alpha1.Cluster, error) {
 	owner := metav1.GetControllerOf(nodePool)
-	if owner == nil || owner.Kind != "Cluster" || owner.UID == "" {
-		return nil, fmt.Errorf("NodePool %s/%s has no Cluster controller ownerReference", nodePool.Namespace, nodePool.Name)
+	if !isClusterControllerOwner(owner) {
+		return nil, fmt.Errorf("%w: NodePool %s/%s", errNodePoolClusterOwnerMissing, nodePool.Namespace, nodePool.Name)
 	}
 	var cluster hyperfleetv1alpha1.Cluster
 	if err := r.Get(ctx, types.NamespacedName{Namespace: nodePool.Namespace, Name: owner.Name}, &cluster); err != nil {
@@ -60,6 +64,10 @@ func (r *NodePoolReconciler) parentCluster(ctx context.Context, nodePool *hyperf
 		return nil, apierrors.NewNotFound(hyperfleetv1alpha1.GroupVersion.WithResource("clusters").GroupResource(), owner.Name)
 	}
 	return &cluster, nil
+}
+
+func isClusterControllerOwner(owner *metav1.OwnerReference) bool {
+	return owner != nil && owner.Kind == reflect.TypeOf(hyperfleetv1alpha1.Cluster{}).Name() && owner.UID != ""
 }
 
 // NodePoolReconciler reconciles a NodePool object by creating DynamoDB desires
@@ -230,14 +238,13 @@ func (r *NodePoolReconciler) reconcileDelete(ctx context.Context, nodePool *hype
 
 	cluster, err := r.parentCluster(ctx, nodePool)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			owner := metav1.GetControllerOf(nodePool)
-			log.Info("Waiting for the referenced Cluster during NodePool deletion", "cluster_name", owner.Name, "cluster_uid", owner.UID)
-			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		if !apierrors.IsNotFound(err) && !errors.Is(err, errNodePoolClusterOwnerMissing) {
+			return ctrl.Result{}, fmt.Errorf("get parent Cluster for NodePool deletion: %w", err)
 		}
-		return ctrl.Result{}, fmt.Errorf("get parent Cluster for NodePool deletion: %w", err)
+		log.Info("Parent Cluster not resolvable; skipping management-cluster cleanup", "nodePool", nodePool.Name, "reason", err.Error())
+		cluster = nil
 	}
-	if cluster.Status.PlacementRef != nil {
+	if cluster != nil && cluster.Status.PlacementRef != nil {
 		mc := cluster.Status.PlacementRef.ManagementCluster
 		specsPrefix := dynamo.SpecsPrefix(mc)
 		statusPrefix := dynamo.StatusPrefix(mc)

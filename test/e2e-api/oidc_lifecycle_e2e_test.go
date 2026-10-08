@@ -45,6 +45,11 @@ func metaUID(obj map[string]any) string {
 	return uid
 }
 
+func metaName(obj map[string]any) string {
+	name, _ := oidcConfigMetadata(obj)["name"].(string)
+	return name
+}
+
 // clusterLabel extracts a metadata.labels entry from a decoded Cluster response body.
 func clusterLabel(cluster map[string]any, key string) string {
 	labels, _ := oidcConfigMetadata(cluster)["labels"].(map[string]any)
@@ -103,31 +108,31 @@ func waitForOidcConfigPhase(apiClient *APIClient, accountID, configID, want stri
 }
 
 // waitForClusterFinalized polls GET on the cluster until status.phase is set
-func waitForClusterFinalized(apiClient *APIClient, accountID, clusterID string, timeout time.Duration) {
+func waitForClusterFinalized(apiClient *APIClient, accountID, clusterName string, timeout time.Duration) {
 	Eventually(func(g Gomega) {
-		resp, err := apiClient.Get("/api/v0/clusters/"+clusterID, accountID)
+		resp, err := apiClient.Get("/api/v0/clusters/"+clusterName, accountID)
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(resp.StatusCode).To(Equal(http.StatusOK), "code=%s", apiErrorCode(resp.Body))
 		var got map[string]any
 		g.Expect(json.Unmarshal(resp.Body, &got)).To(Succeed())
 		status, _ := got["status"].(map[string]any)
 		phase, _ := status["phase"].(string)
-		g.Expect(phase).NotTo(BeEmpty(), "cluster %s should have a status.phase set by the operator", clusterID)
+		g.Expect(phase).NotTo(BeEmpty(), "cluster %s should have a status.phase set by the operator", clusterName)
 	}).WithTimeout(timeout).WithPolling(2 * time.Second).Should(Succeed())
 }
 
 // deleteClusterAndWait deletes a cluster and polls until it 404s; a 404 on delete itself also counts as done.
-func deleteClusterAndWait(apiClient *APIClient, accountID, clusterID string) {
-	resp, err := apiClient.Delete("/api/v0/clusters/"+clusterID, accountID)
+func deleteClusterAndWait(apiClient *APIClient, accountID, clusterName string) {
+	resp, err := apiClient.Delete("/api/v0/clusters/"+clusterName, accountID)
 	Expect(err).NotTo(HaveOccurred())
 	if resp.StatusCode == http.StatusNotFound {
 		return
 	}
 	Expect(resp.StatusCode).To(Equal(http.StatusAccepted), "code=%s", apiErrorCode(resp.Body))
 	Eventually(func(g Gomega) {
-		resp, err := apiClient.Get("/api/v0/clusters/"+clusterID, accountID)
+		resp, err := apiClient.Get("/api/v0/clusters/"+clusterName, accountID)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound), "cluster %s should be gone", clusterID)
+		g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound), "cluster %s should be gone", clusterName)
 	}).WithTimeout(10 * time.Minute).WithPolling(30 * time.Second).Should(Succeed())
 }
 
@@ -173,24 +178,26 @@ var _ = Describe("OIDC Config Lifecycle: Managed", Ordered, Label("oidcconfig", 
 		Expect(clusterLabel(fetched, "hyperfleet.io/cluster-namespace")).To(BeEmpty())
 
 		By("creating a cluster referencing the config")
+		clusterName := uniqueClusterName("m")
 		resp, err := apiClient.Post("/api/v0/clusters", map[string]any{
-			"metadata": map[string]any{"name": uniqueClusterName("m")},
+			"metadata": map[string]any{"name": clusterName},
 			"spec":     minClusterSpec(configID),
 		}, accountID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated), "code=%s", apiErrorCode(resp.Body))
 		var cluster map[string]any
 		Expect(json.Unmarshal(resp.Body, &cluster)).To(Succeed())
-		clusterID := metaUID(cluster)
+		clusterName = metaName(cluster)
+		Expect(clusterName).NotTo(BeEmpty())
 		// Safety net if a later assertion fails before the explicit delete below runs.
-		DeferCleanup(func() { deleteClusterAndWait(apiClient, accountID, clusterID) })
+		DeferCleanup(func() { deleteClusterAndWait(apiClient, accountID, clusterName) })
 		Expect(clusterIssuerURL(cluster)).To(Equal(issuerURL), "cluster's issuerURL should be service-set from the OIDC config")
 
 		By("verifying the config reaches Ready via a real TLS handshake against CloudFront")
 		waitForOidcConfigPhase(apiClient, accountID, configID, "Ready", 2*time.Minute)
 
 		By("deleting the cluster and confirming the claim releases")
-		deleteClusterAndWait(apiClient, accountID, clusterID)
+		deleteClusterAndWait(apiClient, accountID, clusterName)
 		unbound := waitForOidcConfigPhase(apiClient, accountID, configID, "Pending", 1*time.Minute)
 		Expect(clusterLabel(unbound, "hyperfleet.io/cluster-namespace")).To(BeEmpty())
 	})
@@ -216,17 +223,19 @@ var _ = Describe("OIDC Config Lifecycle: Reusability", Ordered, Label("oidcconfi
 		DeferCleanup(func() { deleteOidcConfigAndWait(apiClient, accountID, configID) })
 
 		By("cluster A claims the config")
+		clusterAName := uniqueClusterName("a")
 		respA, err := apiClient.Post("/api/v0/clusters", map[string]any{
-			"metadata": map[string]any{"name": uniqueClusterName("a")},
+			"metadata": map[string]any{"name": clusterAName},
 			"spec":     minClusterSpec(configID),
 		}, accountID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(respA.StatusCode).To(Equal(http.StatusCreated), "code=%s", apiErrorCode(respA.Body))
 		var clusterA map[string]any
 		Expect(json.Unmarshal(respA.Body, &clusterA)).To(Succeed())
-		clusterAID := metaUID(clusterA)
+		clusterAName = metaName(clusterA)
+		Expect(clusterAName).NotTo(BeEmpty())
 		// Safety net if a later assertion fails before the explicit delete below runs.
-		DeferCleanup(func() { deleteClusterAndWait(apiClient, accountID, clusterAID) })
+		DeferCleanup(func() { deleteClusterAndWait(apiClient, accountID, clusterAName) })
 
 		// Reused for both the rejected attempt below and the successful retry after A releases the
 		// claim: the rejected attempt fails before ever reaching CreateCluster (the OIDC claim check
@@ -243,10 +252,10 @@ var _ = Describe("OIDC Config Lifecycle: Reusability", Ordered, Label("oidcconfi
 		Expect(apiErrorCode(respB.Body)).To(Equal("CLUSTERS-MGMT-CREATE-012"))
 
 		By("waiting for cluster A's finalizer to land before deleting it")
-		waitForClusterFinalized(apiClient, accountID, clusterAID, 30*time.Second)
+		waitForClusterFinalized(apiClient, accountID, clusterAName, 30*time.Second)
 
 		By("deleting cluster A releases the claim without deleting the config")
-		deleteClusterAndWait(apiClient, accountID, clusterAID)
+		deleteClusterAndWait(apiClient, accountID, clusterAName)
 		released := waitForOidcConfigPhase(apiClient, accountID, configID, "Pending", 1*time.Minute)
 		Expect(clusterLabel(released, "hyperfleet.io/cluster-namespace")).To(BeEmpty())
 
@@ -259,12 +268,13 @@ var _ = Describe("OIDC Config Lifecycle: Reusability", Ordered, Label("oidcconfi
 		Expect(respB2.StatusCode).To(Equal(http.StatusCreated), "code=%s", apiErrorCode(respB2.Body))
 		var clusterB map[string]any
 		Expect(json.Unmarshal(respB2.Body, &clusterB)).To(Succeed())
-		clusterBID := metaUID(clusterB)
-		DeferCleanup(func() { deleteClusterAndWait(apiClient, accountID, clusterBID) })
+		clusterBName := metaName(clusterB)
+		Expect(clusterBName).NotTo(BeEmpty())
+		DeferCleanup(func() { deleteClusterAndWait(apiClient, accountID, clusterBName) })
 
 		By("waiting for cluster B's finalizer to land before deleting it")
-		waitForClusterFinalized(apiClient, accountID, clusterBID, 30*time.Second)
-		deleteClusterAndWait(apiClient, accountID, clusterBID)
+		waitForClusterFinalized(apiClient, accountID, clusterBName, 30*time.Second)
+		deleteClusterAndWait(apiClient, accountID, clusterBName)
 	})
 })
 
@@ -371,7 +381,7 @@ var _ = Describe("OIDC Config Lifecycle: Unmanaged", Ordered, Label("oidcconfig"
 	})
 
 	It("copies the customer's signing key into local Secrets Manager and binds a cluster once Ready", func() {
-		var clusterID string // set once the cluster below is created; read by the DeferCleanup below
+		var clusterName string // set once the cluster below is created; read by the DeferCleanup below
 		By("creating an unmanaged config pointing at our own reachable HTTPS host (TLS-only check) and the fixture's ARNs")
 		issuerURL := strings.TrimSuffix(baseURL, "/") + fmt.Sprintf("/e2e-unmanaged-issuer-%d", time.Now().UnixNano())
 		created := createOidcConfig(apiClient, accountID, map[string]any{
@@ -383,8 +393,8 @@ var _ = Describe("OIDC Config Lifecycle: Unmanaged", Ordered, Label("oidcconfig"
 		configID := metaUID(created)
 		// Safety net: delete any bound cluster (an OIDC claim would block config deletion), then the config.
 		DeferCleanup(func() {
-			if clusterID != "" {
-				deleteClusterAndWait(apiClient, accountID, clusterID)
+			if clusterName != "" {
+				deleteClusterAndWait(apiClient, accountID, clusterName)
 			}
 			deleteOidcConfigAndWait(apiClient, accountID, configID)
 		})
@@ -405,22 +415,24 @@ var _ = Describe("OIDC Config Lifecycle: Unmanaged", Ordered, Label("oidcconfig"
 		Expect(keysMatch).To(BeTrue(), "copied Secrets Manager key does not match the fixture's signing key")
 
 		By("creating a cluster against the now-Ready config")
+		requestedClusterName := uniqueClusterName("u")
 		resp, err := apiClient.Post("/api/v0/clusters", map[string]any{
-			"metadata": map[string]any{"name": uniqueClusterName("u")},
+			"metadata": map[string]any{"name": requestedClusterName},
 			"spec":     minClusterSpec(configID),
 		}, accountID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusCreated), "code=%s", apiErrorCode(resp.Body))
 		var cluster map[string]any
 		Expect(json.Unmarshal(resp.Body, &cluster)).To(Succeed())
-		clusterID = metaUID(cluster)
+		clusterName = metaName(cluster)
+		Expect(clusterName).NotTo(BeEmpty())
 		Expect(clusterIssuerURL(cluster)).To(Equal(issuerURL))
 
 		By("waiting for the cluster's finalizer to land before deleting it")
-		waitForClusterFinalized(apiClient, accountID, clusterID, 30*time.Second)
+		waitForClusterFinalized(apiClient, accountID, clusterName, 30*time.Second)
 
 		By("deleting the cluster then the config, and confirming the Secrets Manager copy is cleaned up too")
-		deleteClusterAndWait(apiClient, accountID, clusterID)
+		deleteClusterAndWait(apiClient, accountID, clusterName)
 		deleteOidcConfigAndWait(apiClient, accountID, configID)
 		Eventually(func(g Gomega) {
 			_, err := smClient.GetSecretValue(context.Background(), &secretsmanager.GetSecretValueInput{

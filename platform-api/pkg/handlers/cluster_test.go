@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -732,6 +733,137 @@ func TestClusterHandler_Create_ConcurrentOidcConfigCollision(t *testing.T) {
 	}
 	if created != 1 || conflict != 1 {
 		t.Fatalf("expected exactly one 201 and one 409 (ErrClusterCreateOidcConfigInUse) for concurrent creates referencing the same oidcConfigId, got codes %v", codes)
+	}
+}
+
+func TestClusterHandler_ClaimDNSReservationRetriesUpdateConflict(t *testing.T) {
+	scheme := newTestScheme()
+	updateCalls := 0
+	fc := newClusterTestClientBuilder(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			reservation, ok := obj.(*hyperfleetv1alpha1.DNSReservation)
+			if !ok {
+				return c.Update(ctx, obj, opts...)
+			}
+			updateCalls++
+			if updateCalls == 1 {
+				var latest hyperfleetv1alpha1.DNSReservation
+				if err := c.Get(ctx, client.ObjectKeyFromObject(reservation), &latest); err != nil {
+					return err
+				}
+				latest.Finalizers = append(latest.Finalizers, "test.example/controller")
+				if err := c.Update(ctx, &latest, opts...); err != nil {
+					return err
+				}
+				return apierrors.NewConflict(hyperfleetv1alpha1.GroupVersion.WithResource("dnsreservations").GroupResource(), reservation.Name, errors.New("concurrent finalizer update"))
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	}).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewClusterHandler(hyperfleetdb.NewClientFrom(fc, logger), "", 0, logger)
+	clusterUID := "new-cluster-uid"
+
+	if apiErr := handler.claimDNSReservation(context.Background(), testAccountID, testDNSReservationUID, clusterUID); apiErr != nil {
+		t.Fatalf("claimDNSReservation returned error: %v", apiErr)
+	}
+	if updateCalls != 2 {
+		t.Fatalf("reservation update calls = %d, want 2 after retry", updateCalls)
+	}
+
+	reservation, err := handler.db.GetDNSReservation(context.Background(), testAccountID, "test-reservation")
+	if err != nil {
+		t.Fatalf("get claimed reservation: %v", err)
+	}
+	if reservation.Labels[claimedByClusterUIDLabel] != clusterUID {
+		t.Errorf("claimed-by-cluster-uid = %q, want %q", reservation.Labels[claimedByClusterUIDLabel], clusterUID)
+	}
+	if len(reservation.Finalizers) != 1 || reservation.Finalizers[0] != "test.example/controller" {
+		t.Errorf("controller finalizers were not preserved after retry: %v", reservation.Finalizers)
+	}
+}
+
+func TestClusterHandler_ClaimDNSReservationReturnsInUseAfterConflictRecheck(t *testing.T) {
+	scheme := newTestScheme()
+	updateCalls := 0
+	fc := newClusterTestClientBuilder(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			reservation, ok := obj.(*hyperfleetv1alpha1.DNSReservation)
+			if !ok {
+				return c.Update(ctx, obj, opts...)
+			}
+			updateCalls++
+			if updateCalls == 1 {
+				var latest hyperfleetv1alpha1.DNSReservation
+				if err := c.Get(ctx, client.ObjectKeyFromObject(reservation), &latest); err != nil {
+					return err
+				}
+				latest.Labels[claimedByClusterUIDLabel] = "another-cluster-uid"
+				if err := c.Update(ctx, &latest, opts...); err != nil {
+					return err
+				}
+				return apierrors.NewConflict(hyperfleetv1alpha1.GroupVersion.WithResource("dnsreservations").GroupResource(), reservation.Name, errors.New("concurrent claim"))
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	}).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewClusterHandler(hyperfleetdb.NewClientFrom(fc, logger), "", 0, logger)
+
+	apiErr := handler.claimDNSReservation(context.Background(), testAccountID, testDNSReservationUID, "new-cluster-uid")
+	if apiErr == nil || apiErr.Code != ErrClusterCreateDNSReservationInUse.Code {
+		t.Fatalf("claimDNSReservation error = %v, want %s", apiErr, ErrClusterCreateDNSReservationInUse.Code)
+	}
+	if updateCalls != 1 {
+		t.Fatalf("reservation update calls = %d, want only the conflicting update", updateCalls)
+	}
+}
+
+func TestClusterHandler_ClaimOidcConfigRetriesUpdateConflict(t *testing.T) {
+	scheme := newTestScheme()
+	oidcConfig := testReadyOidcConfig(testOidcConfigID, testAccountID, testOidcConfigIssuerURL)
+	updateCalls := 0
+	fc := newClusterTestClientBuilder(scheme).WithObjects(oidcConfig).WithStatusSubresource(oidcConfig).WithInterceptorFuncs(interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			config, ok := obj.(*hyperfleetv1alpha1.OidcConfig)
+			if !ok {
+				return c.Update(ctx, obj, opts...)
+			}
+			updateCalls++
+			if updateCalls == 1 {
+				var latest hyperfleetv1alpha1.OidcConfig
+				if err := c.Get(ctx, client.ObjectKeyFromObject(config), &latest); err != nil {
+					return err
+				}
+				latest.Finalizers = append(latest.Finalizers, "test.example/controller")
+				if err := c.Update(ctx, &latest, opts...); err != nil {
+					return err
+				}
+				return apierrors.NewConflict(hyperfleetv1alpha1.GroupVersion.WithResource("oidcconfigs").GroupResource(), config.Name, errors.New("concurrent finalizer update"))
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	}).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewClusterHandler(hyperfleetdb.NewClientFrom(fc, logger), "", 0, logger)
+	clusterUID := "new-cluster-uid"
+
+	if apiErr := handler.claimOidcConfig(context.Background(), testAccountID, testOidcConfigID, clusterUID); apiErr != nil {
+		t.Fatalf("claimOidcConfig returned error: %v", apiErr)
+	}
+	if updateCalls != 2 {
+		t.Fatalf("OidcConfig update calls = %d, want 2 after retry", updateCalls)
+	}
+
+	var claimed hyperfleetv1alpha1.OidcConfig
+	if err := fc.Get(context.Background(), types.NamespacedName{Namespace: "account-" + testAccountID, Name: testOidcConfigID}, &claimed); err != nil {
+		t.Fatalf("get claimed OidcConfig: %v", err)
+	}
+	if claimed.Labels[claimedByClusterUIDLabel] != clusterUID {
+		t.Errorf("claimed-by-cluster-uid = %q, want %q", claimed.Labels[claimedByClusterUIDLabel], clusterUID)
+	}
+	if len(claimed.Finalizers) != 1 || claimed.Finalizers[0] != "test.example/controller" {
+		t.Errorf("controller finalizers were not preserved after retry: %v", claimed.Finalizers)
 	}
 }
 
