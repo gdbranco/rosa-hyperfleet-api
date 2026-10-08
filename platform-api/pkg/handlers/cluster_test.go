@@ -929,6 +929,38 @@ func TestClusterHandler_Update_Success(t *testing.T) {
 	}
 }
 
+func TestClusterHandler_Update_AllowsUnchangedServiceManagedIssuerURL(t *testing.T) {
+	scheme := newTestScheme()
+	cluster := testClusterCR("cluster-123", "test-cluster", testAccountID)
+	cluster.Spec.HostedCluster.IssuerURL = "https://oidc.example.com/issuer"
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewClusterHandler(hyperfleetdb.NewClientFrom(fc, logger), "", 0, logger)
+
+	body, _ := json.Marshal(map[string]any{
+		"spec": map[string]any{
+			"hostedCluster": map[string]any{"issuerURL": cluster.Spec.HostedCluster.IssuerURL},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v0/clusters/test-cluster", bytes.NewReader(body))
+	req = req.WithContext(testContext(testAccountID))
+	req = mux.SetURLVars(req, map[string]string{"id": "test-cluster"})
+	w := httptest.NewRecorder()
+
+	handler.Update(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for unchanged service-managed issuerURL, got %d: %s", w.Code, w.Body.String())
+	}
+	var updated hyperfleetv1alpha1.Cluster
+	if err := fc.Get(context.Background(), types.NamespacedName{Namespace: "account-" + testAccountID, Name: "test-cluster"}, &updated); err != nil {
+		t.Fatalf("get updated Cluster: %v", err)
+	}
+	if updated.Spec.HostedCluster.IssuerURL != cluster.Spec.HostedCluster.IssuerURL {
+		t.Errorf("issuerURL = %q, want unchanged %q", updated.Spec.HostedCluster.IssuerURL, cluster.Spec.HostedCluster.IssuerURL)
+	}
+}
+
 func TestClusterHandler_Update_NotFound(t *testing.T) {
 	scheme := newTestScheme()
 	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
