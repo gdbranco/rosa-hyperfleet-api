@@ -1,5 +1,3 @@
-//go:build integration
-
 package handlers
 
 import (
@@ -152,6 +150,79 @@ func TestNodePoolHandler_List_ClusterIDParameterFiltersByParentUID(t *testing.T)
 	}
 	if response.Total != 1 || len(response.Items) != 1 {
 		t.Fatalf("expected only the matching NodePool, got %+v", response)
+	}
+}
+
+func TestNodePoolHandler_Get_Success(t *testing.T) {
+	nodepool := testNodePoolCR("my-cluster.workers", testAccountID)
+	handler := newTestNodePoolHandler(t, nodepool)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/nodepools/"+nodepool.Name, nil)
+	req = req.WithContext(testContext(testAccountID))
+	req = mux.SetURLVars(req, map[string]string{"id": nodepool.Name})
+	w := httptest.NewRecorder()
+
+	handler.Get(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	metadata, _ := response["metadata"].(map[string]any)
+	if got := metadata["name"]; got != nodepool.Name {
+		t.Errorf("metadata.name = %v, want %q", got, nodepool.Name)
+	}
+}
+
+func TestNodePoolHandler_Get_NotFound(t *testing.T) {
+	handler := newTestNodePoolHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v0/nodepools/missing.workers", nil)
+	req = req.WithContext(testContext(testAccountID))
+	req = mux.SetURLVars(req, map[string]string{"id": "missing.workers"})
+	w := httptest.NewRecorder()
+
+	handler.Get(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestNodePoolHandler_Delete_Success(t *testing.T) {
+	nodepool := testNodePoolCR("my-cluster.workers", testAccountID)
+	handler := newTestNodePoolHandler(t, nodepool)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v0/nodepools/"+nodepool.Name, nil)
+	req = req.WithContext(testContext(testAccountID))
+	req = mux.SetURLVars(req, map[string]string{"id": nodepool.Name})
+	w := httptest.NewRecorder()
+
+	handler.Delete(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := response["nodepool_name"]; got != nodepool.Name {
+		t.Errorf("nodepool_name = %v, want %q", got, nodepool.Name)
+	}
+}
+
+func TestNodePoolHandler_Delete_NotFound(t *testing.T) {
+	handler := newTestNodePoolHandler(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/v0/nodepools/missing.workers", nil)
+	req = req.WithContext(testContext(testAccountID))
+	req = mux.SetURLVars(req, map[string]string{"id": "missing.workers"})
+	w := httptest.NewRecorder()
+
+	handler.Delete(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

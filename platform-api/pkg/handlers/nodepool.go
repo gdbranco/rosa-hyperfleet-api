@@ -297,8 +297,8 @@ func (h *NodePoolHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if errs := append(h.validator.ValidateUpdate(&req.Spec, &current.Spec, featuregate.Default), validateNodePoolReplicas(&req.Spec)...); len(errs) > 0 {
-			writeAPIError(w, ErrNodePoolValidation.WithErrors(errs), h.logger)
-			return errs
+			validationErr = errs
+			return fmt.Errorf("invalid nodepool update")
 		}
 		if err := hyperfleetdb.MergeSpecJSON(&current.Spec, envelope.Spec); err != nil {
 			mergeErr = err

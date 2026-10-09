@@ -113,6 +113,124 @@ var _ = Describe("Cluster Controller", func() {
 			Expect(controllerutil.ContainsFinalizer(&updated, clusterFinalizer)).To(BeTrue())
 		})
 
+		It("should persist the reservation base domain on Cluster status", func() {
+			cluster := newTestCluster(clusterName)
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			reconciler := &ClusterReconciler{Client: k8sClient}
+			Expect(reconciler.persistBaseDomain(ctx, cluster, "f7a3.0.example.com")).To(Succeed())
+
+			var updated hyperfleetv1alpha1.Cluster
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, &updated)).To(Succeed())
+			Expect(updated.Status.BaseDomain).To(Equal("f7a3.0.example.com"))
+		})
+
+		It("should release only the OIDC claim held by this Cluster", func() {
+			config := &hyperfleetv1alpha1.OidcConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-oidc-config",
+					Namespace: testNS,
+					Labels:    map[string]string{claimedByClusterUIDLabel: "cluster-owner-uid"},
+				},
+				Spec: hyperfleetv1alpha1.OidcConfigSpec{
+					Type:      hyperfleetv1alpha1.OidcConfigTypeManaged,
+					IssuerUrl: "https://oidc.example.com/test",
+				},
+			}
+			Expect(k8sClient.Create(ctx, config)).To(Succeed())
+
+			cluster := newTestCluster(clusterName)
+			cluster.UID = types.UID("cluster-owner-uid")
+			cluster.Spec.OidcConfigID = string(config.UID)
+			reconciler := &ClusterReconciler{Client: k8sClient}
+			Expect(reconciler.releaseOidcConfigClaim(ctx, cluster)).To(Succeed())
+
+			var updated hyperfleetv1alpha1.OidcConfig
+			key := types.NamespacedName{Namespace: testNS, Name: config.Name}
+			Expect(k8sClient.Get(ctx, key, &updated)).To(Succeed())
+			Expect(updated.Labels[claimedByClusterUIDLabel]).To(BeEmpty())
+
+			if updated.Labels == nil {
+				updated.Labels = make(map[string]string)
+			}
+			updated.Labels[claimedByClusterUIDLabel] = "another-cluster-uid"
+			Expect(k8sClient.Update(ctx, &updated)).To(Succeed())
+			Expect(reconciler.releaseOidcConfigClaim(ctx, cluster)).To(Succeed())
+			Expect(k8sClient.Get(ctx, key, &updated)).To(Succeed())
+			Expect(updated.Labels[claimedByClusterUIDLabel]).To(Equal("another-cluster-uid"))
+
+			cluster.Spec.OidcConfigID = "missing-oidc-config-uid"
+			Expect(reconciler.releaseOidcConfigClaim(ctx, cluster)).To(Succeed())
+		})
+
+		It("should release owned claims and remove the finalizer when no resources remain", func() {
+			config := &hyperfleetv1alpha1.OidcConfig{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-oidc-config",
+					Namespace: testNS,
+				},
+				Spec: hyperfleetv1alpha1.OidcConfigSpec{
+					Type:      hyperfleetv1alpha1.OidcConfigTypeManaged,
+					AccountID: "123456789012",
+					IssuerUrl: "https://oidc.example.com/test",
+				},
+			}
+			Expect(k8sClient.Create(ctx, config)).To(Succeed())
+
+			cluster := newTestCluster(clusterName)
+			cluster.Spec.DNSReservationID = ""
+			cluster.Spec.OidcConfigID = string(config.UID)
+			cluster.Finalizers = []string{clusterFinalizer}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			config.Labels = map[string]string{claimedByClusterUIDLabel: string(cluster.UID)}
+			Expect(k8sClient.Update(ctx, config)).To(Succeed())
+
+			reconciler := &ClusterReconciler{Client: k8sClient}
+			result, err := reconciler.cleanupAndRemoveFinalizer(ctx, cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeZero())
+
+			var updatedCluster hyperfleetv1alpha1.Cluster
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: clusterName}, &updatedCluster)).To(Succeed())
+			Expect(controllerutil.ContainsFinalizer(&updatedCluster, clusterFinalizer)).To(BeFalse())
+			var updatedConfig hyperfleetv1alpha1.OidcConfig
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testNS, Name: config.Name}, &updatedConfig)).To(Succeed())
+			Expect(updatedConfig.Labels[claimedByClusterUIDLabel]).To(BeEmpty())
+		})
+
+		It("should delete a claimed DNSReservation before removing the Cluster finalizer", func() {
+			reservation := &hyperfleetv1alpha1.DNSReservation{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:       "test-reservation",
+					Namespace:  testNS,
+					UID:        types.UID("test-reservation-uid"),
+					Finalizers: []string{dnsReservationFinalizer},
+					Labels:     map[string]string{accountIDLabel: "123456789012"},
+				},
+				Status: hyperfleetv1alpha1.DNSReservationStatus{
+					Phase:      hyperfleetv1alpha1.DNSReservationPhaseReady,
+					BaseDomain: "f7a3.0.example.com",
+				},
+			}
+			Expect(k8sClient.Create(ctx, reservation)).To(Succeed())
+
+			cluster := newTestCluster(clusterName)
+			cluster.Spec.DNSReservationID = string(reservation.UID)
+			cluster.Finalizers = []string{clusterFinalizer}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			reservation.Labels[claimedByClusterUIDLabel] = string(cluster.UID)
+			Expect(k8sClient.Update(ctx, reservation)).To(Succeed())
+
+			reconciler := &ClusterReconciler{Client: k8sClient}
+			result, err := reconciler.cleanupAndRemoveFinalizer(ctx, cluster)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(5 * time.Second))
+
+			var deletingReservation hyperfleetv1alpha1.DNSReservation
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(reservation), &deletingReservation)).To(Succeed())
+			Expect(deletingReservation.DeletionTimestamp.IsZero()).To(BeFalse())
+		})
+
 		It("should create and bind a DNSReservation when one is not supplied", func() {
 			resource := newTestCluster(clusterName)
 			resource.Spec.DNSReservationID = ""
