@@ -9701,9 +9701,9 @@ components:
                   - message: spec.type is immutable
                     rule: self.type == oldSelf.type
                   - message: spec.secretArn is immutable
-                    rule: self.secretArn == oldSelf.secretArn
+                    rule: has(self.secretArn) == has(oldSelf.secretArn) && (!has(self.secretArn) || self.secretArn == oldSelf.secretArn)
                   - message: spec.installerRoleArn is immutable
-                    rule: self.installerRoleArn == oldSelf.installerRoleArn
+                    rule: has(self.installerRoleArn) == has(oldSelf.installerRoleArn) && (!has(self.installerRoleArn) || self.installerRoleArn == oldSelf.installerRoleArn)
                   - message: spec.issuerUrl is immutable
                     rule: self.issuerUrl == oldSelf.issuerUrl
           status:
@@ -9870,9 +9870,9 @@ components:
                               - message: spec.type is immutable
                                 rule: self.type == oldSelf.type
                               - message: spec.secretArn is immutable
-                                rule: self.secretArn == oldSelf.secretArn
+                                rule: has(self.secretArn) == has(oldSelf.secretArn) && (!has(self.secretArn) || self.secretArn == oldSelf.secretArn)
                               - message: spec.installerRoleArn is immutable
-                                rule: self.installerRoleArn == oldSelf.installerRoleArn
+                                rule: has(self.installerRoleArn) == has(oldSelf.installerRoleArn) && (!has(self.installerRoleArn) || self.installerRoleArn == oldSelf.installerRoleArn)
                               - message: spec.issuerUrl is immutable
                                 rule: self.issuerUrl == oldSelf.issuerUrl
                       status:
