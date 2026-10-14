@@ -20,9 +20,12 @@ func TestRunGeneratesBundledTerraformObject(t *testing.T) {
   cluster:
     sdkType: v1alpha1.Cluster
     fields:
-      - path: metadata.uid
+      - path: metadata.name
         goType: string
         operations: [create]
+      - path: metadata.uid
+        goType: string
+        operations: [read]
       - path: spec.hostedCluster.networking.networkType
         goType: string
         operations: [create]
@@ -99,6 +102,9 @@ resources:
 	for _, want := range []string{
 		`"network": schema.SingleNestedAttribute`,
 		`"network_type": schema.StringAttribute`,
+		`Clusters().Get(ctx, state.Name.ValueString(), hfwrappers.GetOptions{})`,
+		`Clusters().Get(ctx, plan.Name.ValueString(), hfwrappers.GetOptions{})`,
+		`Clusters().Delete(ctx, state.Name.ValueString(), hfwrappers.DeleteOptions{})`,
 		`objectToNative(tf.Network`,
 		`nativeBundleAttributes(native.Network`,
 	} {
@@ -164,6 +170,78 @@ resources:
 	}
 }
 
+func TestRunRoutesByMetadataNameWhenFieldAliasesCollide(t *testing.T) {
+	dir := t.TempDir()
+	draftPath := filepath.Join(dir, "draft.yaml")
+	overridesPath := filepath.Join(dir, "overrides.yaml")
+	outputDir := filepath.Join(dir, "generated")
+	draft := `resources:
+  cluster:
+    sdkType: v1alpha1.Cluster
+    fields:
+      - path: metadata.name
+        goType: string
+        operations: [create]
+      - path: metadata.uid
+        goType: string
+        operations: [read]
+      - path: spec.configuration.name
+        goType: string
+        operations: [create, update]
+`
+	overrides := `config:
+  package: generated
+  tfProviderPkg: example/provider
+resources:
+  cluster:
+    aliases:
+      - path: metadata.name
+        required: true
+        immutable: true
+      - path: metadata.uid
+        alias: id
+        goName: ID
+        computed: true
+`
+	if err := os.WriteFile(draftPath, []byte(draft), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overridesPath, []byte(overrides), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(draftPath, overridesPath, outputDir); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := os.ReadFile(filepath.Join(outputDir, "cluster_state_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateText := string(state)
+	if !strings.Contains(stateText, "MetadataName") || !strings.Contains(stateText, `tfsdk:"metadata_name"`) ||
+		!strings.Contains(stateText, "ID") || !strings.Contains(stateText, `tfsdk:"id"`) {
+		t.Fatalf("generated state must retain both the route name and UID identity fields:\n%s", state)
+	}
+
+	resource, err := os.ReadFile(filepath.Join(outputDir, "cluster_resource_gen.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceText := string(resource)
+	for _, want := range []string{
+		"Get(ctx, state.MetadataName.ValueString(), hfwrappers.GetOptions{})",
+		"Get(ctx, plan.MetadataName.ValueString(), hfwrappers.GetOptions{})",
+		"Delete(ctx, state.MetadataName.ValueString(), hfwrappers.DeleteOptions{})",
+	} {
+		if !strings.Contains(resourceText, want) {
+			t.Errorf("generated API route is missing metadata.name lookup %q", want)
+		}
+	}
+	if strings.Contains(resourceText, "state.ID.ValueString()") || strings.Contains(resourceText, "plan.ID.ValueString()") {
+		t.Error("generated API routes must not use the server UID as the path identifier")
+	}
+}
+
 func TestRunGeneratesListObjectAttributeAndConversions(t *testing.T) {
 	dir := t.TempDir()
 	draftPath := filepath.Join(dir, "draft.yaml")
@@ -173,6 +251,9 @@ func TestRunGeneratesListObjectAttributeAndConversions(t *testing.T) {
   nodePool:
     sdkType: v1alpha1.NodePool
     fields:
+      - path: metadata.name
+        goType: string
+        operations: [create]
       - path: metadata.uid
         goType: string
         operations: [read]
@@ -421,6 +502,9 @@ func TestRunValidationErrors(t *testing.T) {
   cluster:
     sdkType: v1alpha1.Cluster
     fields:
+      - path: metadata.name
+        goType: string
+        operations: [create]
       - path: metadata.uid
         goType: string
         operations: [read]
@@ -446,6 +530,12 @@ func TestRunValidationErrors(t *testing.T) {
 			draft:     "resources:\n  cluster:\n    sdkType: v1alpha1.Cluster\n    fields:\n      - path: metadata.name\n        goType: string\n        operations: [create]\n",
 			overrides: "config:\n  package: generated\n  tfProviderPkg: example/provider\n",
 			want:      "metadata.uid field is missing",
+		},
+		{
+			name:      "missing metadata name",
+			draft:     "resources:\n  cluster:\n    sdkType: v1alpha1.Cluster\n    fields:\n      - path: metadata.uid\n        goType: string\n        operations: [read]\n",
+			overrides: "config:\n  package: generated\n  tfProviderPkg: example/provider\n",
+			want:      "metadata.name field is missing",
 		},
 		{
 			name:      "unsupported draft leaf type",
@@ -482,6 +572,9 @@ func TestRunValidationErrors(t *testing.T) {
 func TestBuildBundlesRejectsUIDAndPreservesBundleCardinality(t *testing.T) {
 	if _, _, err := buildBundles([]pkg.MergedAlias{{Path: "metadata.uid", Bundle: "identity"}}); err == nil {
 		t.Fatal("expected metadata.uid bundle error")
+	}
+	if _, _, err := buildBundles([]pkg.MergedAlias{{Path: "metadata.name", Bundle: "identity"}}); err == nil {
+		t.Fatal("expected metadata.name bundle error")
 	}
 	top, bundles, err := buildBundles([]pkg.MergedAlias{
 		{Path: "metadata.name"},

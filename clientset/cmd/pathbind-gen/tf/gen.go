@@ -103,7 +103,8 @@ func Run(draftPath, overridesPath, outputDir string) error {
 		// Collect immutable and computed fields for schema generation
 		immutableList := []string{}
 		computedList := []string{}
-		identifierField := ""
+		hasUIDField := false
+		nameField := ""
 		for _, a := range aliases {
 			if a.Immutable {
 				immutableList = append(immutableList, a.GoName)
@@ -112,27 +113,33 @@ func Run(draftPath, overridesPath, outputDir string) error {
 				computedList = append(computedList, a.GoName)
 			}
 			if a.Path == "metadata.uid" {
-				identifierField = a.GoName
+				hasUIDField = true
+			}
+			if a.Path == "metadata.name" {
+				nameField = a.GoName
 			}
 		}
-		if identifierField == "" {
+		if !hasUIDField {
 			return fmt.Errorf("building aliases for %s: metadata.uid field is missing", resKey)
+		}
+		if nameField == "" {
+			return fmt.Errorf("building aliases for %s: metadata.name field is missing", resKey)
 		}
 
 		td := pkg.TFTemplateData{
-			Package:         cfg.Package,
-			ResourceName:    resName,
-			SDKType:         sdkType,
-			SDKShortType:    sdkShort,
-			AllFields:       aliases,
-			TopFields:       topFields,
-			Bundles:         bundles,
-			CreateFields:    createFields,
-			UpdateFields:    updateFields,
-			ImmutableList:   immutableList,
-			ComputedList:    computedList,
-			IdentifierField: identifierField,
-			HandlerFactory:  "New" + resName + "HandlerImpl",
+			Package:        cfg.Package,
+			ResourceName:   resName,
+			SDKType:        sdkType,
+			SDKShortType:   sdkShort,
+			AllFields:      aliases,
+			TopFields:      topFields,
+			Bundles:        bundles,
+			CreateFields:   createFields,
+			UpdateFields:   updateFields,
+			ImmutableList:  immutableList,
+			ComputedList:   computedList,
+			NameField:      nameField,
+			HandlerFactory: "New" + resName + "HandlerImpl",
 		}
 
 		// Generate state struct file: <resource>_state_gen.go
@@ -174,6 +181,9 @@ func buildBundles(aliases []pkg.MergedAlias) ([]pkg.MergedAlias, []pkg.AliasBund
 		}
 		if alias.Path == "metadata.uid" {
 			return nil, nil, fmt.Errorf("field metadata.uid cannot be placed in bundle %q: Terraform resource identity must remain top-level", alias.Bundle)
+		}
+		if alias.Path == "metadata.name" {
+			return nil, nil, fmt.Errorf("field metadata.name cannot be placed in bundle %q: Platform API route name must remain top-level", alias.Bundle)
 		}
 		name := pkg.ToPascal(alias.Bundle)
 		if name == "" {

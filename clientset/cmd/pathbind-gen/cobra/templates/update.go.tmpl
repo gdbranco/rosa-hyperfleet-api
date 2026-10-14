@@ -75,8 +75,8 @@ func normalize{{$res}}UpdateInput(cmd *cobra.Command, input *{{$res}}UpdateInput
 }
 
 // RunUpdate{{$res}} executes the update dispatch. Generated; do not edit.
-// uid is the server-assigned UID of the resource to update.
-func RunUpdate{{$res}}(ctx context.Context, r {{$rt}}, cmd *cobra.Command, uid string, input *{{$res}}UpdateInput, h {{$res}}UpdateHandler) error {
+// name is the account-scoped metadata.name used to address the resource in the Platform API.
+func RunUpdate{{$res}}(ctx context.Context, r {{$rt}}, cmd *cobra.Command, name string, input *{{$res}}UpdateInput, h {{$res}}UpdateHandler) error {
 	if interactive.Enabled() {
 		if err := h.Prompt(ctx, r, cmd, input); err != nil {
 			return err
@@ -90,7 +90,7 @@ func RunUpdate{{$res}}(ctx context.Context, r {{$rt}}, cmd *cobra.Command, uid s
 	if err := pathbind.Expand(ctx, *input, obj); err != nil {
 		return err
 	}
-	obj.Name = uid
+	obj.Name = name
 	if err := h.PostExpand(ctx, r, input, obj); err != nil {
 		return err
 	}

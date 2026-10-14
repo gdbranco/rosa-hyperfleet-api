@@ -466,8 +466,8 @@ func (r *{{.ResourceName}}Resource) Read(
 		return
 	}
 
-	// Get current resource from API. Account scope comes from the configured client identity.
-	obj, err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Get(ctx, state.{{.IdentifierField}}.ValueString(), hfwrappers.GetOptions{})
+	// Platform API routes by account-scoped metadata.name; metadata.uid remains the Terraform identity.
+	obj, err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Get(ctx, state.{{.NameField}}.ValueString(), hfwrappers.GetOptions{})
 	if err != nil {
 		if isNotFound(err) {
 			resp.State.RemoveResource(ctx)
@@ -542,8 +542,8 @@ func (r *{{.ResourceName}}Resource) Update(
 		return
 	}
 
-	// Fetch the current object so fields not represented in Terraform are preserved.
-	obj, err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Get(ctx, plan.{{.IdentifierField}}.ValueString(), hfwrappers.GetOptions{})
+	// Fetch by account-scoped metadata.name so fields not represented in Terraform are preserved.
+	obj, err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Get(ctx, plan.{{.NameField}}.ValueString(), hfwrappers.GetOptions{})
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to read {{.ResourceName}} for update", err.Error())
 		return
@@ -619,7 +619,7 @@ func (r *{{.ResourceName}}Resource) Delete(
 		return
 	}
 
-	err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Delete(ctx, state.{{.IdentifierField}}.ValueString(), hfwrappers.DeleteOptions{})
+	err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Delete(ctx, state.{{.NameField}}.ValueString(), hfwrappers.DeleteOptions{})
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to delete {{.ResourceName}}", err.Error())
 		return
@@ -644,8 +644,8 @@ func (r *{{.ResourceName}}Resource) ImportState(
 		return
 	}
 
-	// Use the ID passed in as the {{.ResourceName}} identifier. The Platform API
-	// resolves the account namespace from the configured client identity.
+	// Import IDs are account-scoped metadata.name values because the Platform API
+	// routes by name; Flatten populates the server UID into the Terraform state ID.
 	obj, err := r.Client.HyperfleetV1alpha1().{{pluralize .ResourceName}}().Get(ctx, req.ID, hfwrappers.GetOptions{})
 	if err != nil {
 		resp.Diagnostics.AddError("Failed to import {{.ResourceName}}", err.Error())

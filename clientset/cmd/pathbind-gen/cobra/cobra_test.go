@@ -204,6 +204,14 @@ func TestTemplatesUseFlatNodePoolClient(t *testing.T) {
 			if strings.Contains(got, "namespace string") || strings.Contains(got, ".NodePools(namespace)") {
 				t.Errorf("generated %s still requires a namespace argument", tt.name)
 			}
+			if tt.name == "update" {
+				if !strings.Contains(got, "name string") || !strings.Contains(got, "obj.Name = name") {
+					t.Errorf("generated update must route by metadata.name: %s", got)
+				}
+				if strings.Contains(got, "uid string") || strings.Contains(got, "obj.Name = uid") {
+					t.Errorf("generated update must not route by metadata.uid: %s", got)
+				}
+			}
 		})
 	}
 }
