@@ -406,6 +406,10 @@ resources:
               operations:
                 - create
                 - update
+            - path: spec.ec2InstanceMetadataHttpTokens
+              goType: string
+              operations:
+                - create
             - path: spec.labels
               goType: map
               operations:

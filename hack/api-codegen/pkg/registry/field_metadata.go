@@ -1441,6 +1441,12 @@ var FieldRegistry = TypedFieldRegistry{
 			OwnerType: "NodePool",
 			OwnerGVK:  "hyperfleet.io/v1alpha1.NodePool",
 		},
+		"spec.ec2InstanceMetadataHttpTokens": {
+			FieldPath: "spec.ec2InstanceMetadataHttpTokens",
+			WriteMode: Immutable,
+			OwnerType: "NodePool",
+			OwnerGVK:  "hyperfleet.io/v1alpha1.NodePool",
+		},
 		"spec.internalPoolId": {
 			FieldPath: "spec.internalPoolId",
 			WriteMode: ServiceSet,

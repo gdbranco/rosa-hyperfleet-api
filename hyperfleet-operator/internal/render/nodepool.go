@@ -12,7 +12,10 @@ import (
 	hyperfleetv1alpha1 "github.com/openshift-online/rosa-hyperfleet-api/api/v1alpha1"
 )
 
-const defaultRootVolumeSizeGiB int64 = 300
+const (
+	defaultRootVolumeSizeGiB                int64 = 300
+	ec2InstanceMetadataHttpTokensAnnotation       = "hypershift.openshift.io/ec2-instance-metadata-http-tokens"
+)
 
 // NodePoolResource generates the HyperShift NodePool resource for the MC.
 func NodePoolResource(nodePool *hyperfleetv1alpha1.NodePool, cluster *hyperfleetv1alpha1.Cluster) (Resource, error) {
@@ -28,6 +31,12 @@ func NodePoolResource(nodePool *hyperfleetv1alpha1.NodePool, cluster *hyperfleet
 	parentName, npName, ok := strings.Cut(nodePool.Name, ".")
 	if !ok || parentName != clusterName || npName == "" || strings.Contains(npName, ".") {
 		return Resource{}, fmt.Errorf("NodePool name %q must be <cluster>.<child> for parent Cluster %q", nodePool.Name, clusterName)
+	}
+	var annotations map[string]string
+	if nodePool.Spec.EC2InstanceMetadataHttpTokens != "" {
+		annotations = map[string]string{
+			ec2InstanceMetadataHttpTokensAnnotation: string(nodePool.Spec.EC2InstanceMetadataHttpTokens),
+		}
 	}
 
 	npSpec, err := toNodePoolSpec(&nodePool.Spec.NodePool)
@@ -88,9 +97,10 @@ func NodePoolResource(nodePool *hyperfleetv1alpha1.NodePool, cluster *hyperfleet
 				Kind:       "NodePool",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      npName,
-				Namespace: ns,
-				Labels:    clusterLabels(clusterID),
+				Name:        npName,
+				Namespace:   ns,
+				Labels:      clusterLabels(clusterID),
+				Annotations: annotations,
 			},
 			Spec: *npSpec,
 		},

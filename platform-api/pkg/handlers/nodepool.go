@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -46,6 +47,38 @@ func validateNodePoolReplicas(spec *public.NodePoolSpec) validation.ValidationEr
 		&validation.ValidationError{
 			Field:  "spec.nodePool.replicas",
 			Reason: "must be greater than or equal to 0",
+		},
+	}
+}
+
+func validateNodePoolEC2InstanceMetadataHttpTokens(value public.EC2InstanceMetadataHttpTokens) validation.ValidationErrors {
+	if slices.Contains([]public.EC2InstanceMetadataHttpTokens{
+		public.EC2InstanceMetadataHttpTokensRequired,
+		public.EC2InstanceMetadataHttpTokensOptional,
+	}, value) {
+		return nil
+	}
+	return validation.ValidationErrors{
+		&validation.ValidationError{
+			Field:  "spec.ec2InstanceMetadataHttpTokens",
+			Reason: "must be either required or optional",
+		},
+	}
+}
+
+func validateNodePoolEC2InstanceMetadataHttpTokensClearOnUpdate(rawSpec map[string]any, existing *hyperfleetv1alpha1.NodePoolSpec) validation.ValidationErrors {
+	rawValue, present := rawSpec["ec2InstanceMetadataHttpTokens"]
+	if !present || existing == nil || existing.EC2InstanceMetadataHttpTokens == "" {
+		return nil
+	}
+	value, isString := rawValue.(string)
+	if isString && value != "" {
+		return nil
+	}
+	return validation.ValidationErrors{
+		&validation.ValidationError{
+			Field:  "spec.ec2InstanceMetadataHttpTokens",
+			Reason: "field is immutable and cannot be changed after creation",
 		},
 	}
 }
@@ -208,8 +241,13 @@ func (h *NodePoolHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// ClusterName is derived from the validated metadata.name prefix; do not
 	// trust a separately supplied passthrough value to select a parent.
 	req.Spec.NodePool.ClusterName = clusterName
+	if req.Spec.EC2InstanceMetadataHttpTokens == "" {
+		req.Spec.EC2InstanceMetadataHttpTokens = public.EC2InstanceMetadataHttpTokensRequired
+	}
 
-	if errs := append(h.validator.ValidateCreate(&req.Spec, featuregate.Default), validateNodePoolReplicas(&req.Spec)...); len(errs) > 0 {
+	errs := append(h.validator.ValidateCreate(&req.Spec, featuregate.Default), validateNodePoolReplicas(&req.Spec)...)
+	errs = append(errs, validateNodePoolEC2InstanceMetadataHttpTokens(req.Spec.EC2InstanceMetadataHttpTokens)...)
+	if len(errs) > 0 {
 		writeAPIError(w, ErrNodePoolValidation.WithErrors(errs), h.logger)
 		return
 	}
@@ -333,6 +371,7 @@ func (h *NodePoolHandler) Update(w http.ResponseWriter, r *http.Request) {
 		errs := h.validator.ValidateUpdate(&req.Spec, &current.Spec, featuregate.Default)
 		errs = append(errs, validateNodePoolReplicas(&req.Spec)...)
 		errs = append(errs, validateRootVolumeNullOnUpdate(rawSpec, &current.Spec)...)
+		errs = append(errs, validateNodePoolEC2InstanceMetadataHttpTokensClearOnUpdate(rawSpec, &current.Spec)...)
 		if len(errs) > 0 {
 			validationErr = errs
 			return fmt.Errorf("invalid nodepool update: %w", errs)

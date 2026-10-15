@@ -406,6 +406,9 @@ func TestNodePoolHandler_Create_ResolvesParentFromDottedName(t *testing.T) {
 	if got := stored.Spec.NodePool.ClusterName; got != "my-cluster" {
 		t.Errorf("stored parent ClusterName = %q, want %q", got, "my-cluster")
 	}
+	if got := stored.Spec.EC2InstanceMetadataHttpTokens; got != hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired {
+		t.Errorf("stored ec2InstanceMetadataHttpTokens = %q, want %q", got, hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired)
+	}
 	if got := stored.Labels[clusterUIDLabel]; got != string(cluster.UID) {
 		t.Errorf("cluster UID label = %q, want %q", got, cluster.UID)
 	}
@@ -421,6 +424,48 @@ func TestNodePoolHandler_Create_ResolvesParentFromDottedName(t *testing.T) {
 		if _, exists := spec["clusterId"]; exists {
 			t.Error("response must not expose spec.clusterId")
 		}
+		if got := spec["ec2InstanceMetadataHttpTokens"]; got != "required" {
+			t.Errorf("response ec2InstanceMetadataHttpTokens = %v, want required", got)
+		}
+	}
+}
+
+func TestNodePoolHandler_Create_AcceptsOptionalEC2InstanceMetadataHttpTokens(t *testing.T) {
+	scheme := newTestScheme()
+	cluster := &hyperfleetv1alpha1.Cluster{ObjectMeta: metav1.ObjectMeta{
+		Name:      "my-cluster",
+		Namespace: "account-" + testAccountID,
+		UID:       types.UID("550e8400-e29b-41d4-a716-446655440000"),
+	}}
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	handler := NewNodePoolHandler(hyperfleetdb.NewClientFrom(fc, logger), logger)
+	body := mustMarshal(t, map[string]any{
+		"metadata": map[string]any{"name": "my-cluster.optional-workers"},
+		"spec": map[string]any{
+			"ec2InstanceMetadataHttpTokens": "optional",
+			"nodePool": map[string]any{
+				"clusterName": "my-cluster",
+				"release":     map[string]any{"image": "quay.io/openshift-release-dev/ocp-release:4.17.0"},
+				"platform":    map[string]any{"type": "AWS"},
+			},
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v0/nodepools", bytes.NewReader(body))
+	req = req.WithContext(testContext(testAccountID))
+	w := httptest.NewRecorder()
+
+	handler.Create(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var stored hyperfleetv1alpha1.NodePool
+	if err := fc.Get(context.Background(), types.NamespacedName{Namespace: "account-" + testAccountID, Name: "my-cluster.optional-workers"}, &stored); err != nil {
+		t.Fatalf("get created NodePool: %v", err)
+	}
+	if got := stored.Spec.EC2InstanceMetadataHttpTokens; got != hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensOptional {
+		t.Errorf("stored ec2InstanceMetadataHttpTokens = %q, want %q", got, hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensOptional)
 	}
 }
 

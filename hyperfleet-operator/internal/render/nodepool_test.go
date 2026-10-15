@@ -338,6 +338,49 @@ func TestNodePoolResourceAutoRepair(t *testing.T) {
 	}
 }
 
+func TestNodePoolResourceEC2InstanceMetadataHttpTokensAnnotation(t *testing.T) {
+	tests := []struct {
+		name  string
+		value hyperfleetv1alpha1.EC2InstanceMetadataHttpTokens
+		want  string
+		set   bool
+	}{
+		{name: "unset preserves HyperShift default"},
+		{
+			name:  "required",
+			value: hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired,
+			want:  "required",
+			set:   true,
+		},
+		{
+			name:  "optional",
+			value: hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensOptional,
+			want:  "optional",
+			set:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nodePool := testNodePool()
+			nodePool.Spec.EC2InstanceMetadataHttpTokens = tt.value
+
+			resource, err := NodePoolResource(nodePool, testCluster())
+			if err != nil {
+				t.Fatalf("NodePoolResource: %v", err)
+			}
+			rendered := resource.Object.(*hypershiftv1beta1.NodePool)
+			got, found := rendered.Annotations[ec2InstanceMetadataHttpTokensAnnotation]
+			if found != tt.set {
+				t.Fatalf("annotation present = %t, want %t (annotations: %v)", found, tt.set, rendered.Annotations)
+			}
+			if got != tt.want {
+				t.Errorf("annotation value = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNodePoolResourceNodeLabels(t *testing.T) {
 	np := testNodePool()
 	np.Spec.Labels = map[string]string{"env": "staging", "team": "platform"}

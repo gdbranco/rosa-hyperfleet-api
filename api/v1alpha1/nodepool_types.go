@@ -34,6 +34,16 @@ const (
 	NodePoolPhaseDeleting          NodePoolPhase = "Deleting"
 )
 
+// EC2InstanceMetadataHttpTokens controls which EC2 instance metadata protocol
+// versions are accepted by worker instances.
+// +kubebuilder:validation:Enum=required;optional
+type EC2InstanceMetadataHttpTokens string
+
+const (
+	EC2InstanceMetadataHttpTokensRequired EC2InstanceMetadataHttpTokens = "required"
+	EC2InstanceMetadataHttpTokensOptional EC2InstanceMetadataHttpTokens = "optional"
+)
+
 // The CEL rules on NodePoolSpec enforce the cross-field constraints on the
 // upgrade disruption budget. maxUnavailable and maxSurge are int-or-string, so
 // the zero checks go through string() to catch both 0 and "0%" without relying
@@ -52,6 +62,15 @@ type NodePoolSpec struct {
 	// +hyperfleet:write-mode=mutable
 	// +optional
 	AutoRepair *bool `json:"autoRepair,omitempty"`
+
+	// EC2InstanceMetadataHttpTokens configures the HTTP token requirement for
+	// the EC2 instance metadata service. "required" enforces IMDSv2, while
+	// "optional" permits IMDSv1. If omitted when creating a NodePool, it defaults
+	// to "required".
+	// +kubebuilder:default="required"
+	// +hyperfleet:write-mode=immutable
+	// +optional
+	EC2InstanceMetadataHttpTokens EC2InstanceMetadataHttpTokens `json:"ec2InstanceMetadataHttpTokens,omitempty"`
 
 	// Labels are customer-defined labels applied to nodes in this pool.
 	// +hyperfleet:write-mode=mutable

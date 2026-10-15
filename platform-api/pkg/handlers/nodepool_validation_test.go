@@ -70,6 +70,24 @@ func TestNodePoolHandlerCreateRejectsNegativeReplicas(t *testing.T) {
 	}
 }
 
+func TestNodePoolHandlerCreateRejectsInvalidEC2InstanceMetadataHttpTokens(t *testing.T) {
+	const accountID = "123456789012"
+	handler := newNodePoolValidationTestHandler(t)
+	body := `{"metadata":{"name":"my-cluster.pool-a","namespace":"account-` + accountID + `"},"spec":{"ec2InstanceMetadataHttpTokens":"disabled"}}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v0/nodepools", strings.NewReader(body))
+	request = request.WithContext(context.WithValue(request.Context(), middleware.ContextKeyAccountID, accountID))
+	response := httptest.NewRecorder()
+
+	handler.Create(response, request)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("Create() status = %d, want %d; body=%s", response.Code, http.StatusUnprocessableEntity, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "spec.ec2InstanceMetadataHttpTokens") {
+		t.Fatalf("Create() response does not identify ec2InstanceMetadataHttpTokens: %s", response.Body.String())
+	}
+}
+
 func TestNodePoolHandlerUpdateRejectsNegativeReplicas(t *testing.T) {
 	const (
 		accountID = "123456789012"
@@ -99,6 +117,94 @@ func TestNodePoolHandlerUpdateRejectsNegativeReplicas(t *testing.T) {
 	}
 	if !json.Valid(response.Body.Bytes()) {
 		t.Fatalf("Update() response contains multiple JSON documents: %s", response.Body.String())
+	}
+}
+
+func TestNodePoolHandlerUpdateRejectsEC2InstanceMetadataHttpTokensChanges(t *testing.T) {
+	const (
+		accountID = "123456789012"
+		poolName  = "pool-a"
+	)
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "change enum value", value: `"optional"`},
+		{name: "clear with empty string", value: `""`},
+		{name: "clear with null", value: "null"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			object := &hyperfleetv1alpha1.NodePool{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      poolName,
+					Namespace: "account-" + accountID,
+					Labels:    map[string]string{"hyperfleet.io/account-id": accountID},
+				},
+				Spec: hyperfleetv1alpha1.NodePoolSpec{
+					EC2InstanceMetadataHttpTokens: hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired,
+				},
+			}
+			handler := newNodePoolValidationTestHandler(t, object)
+			body := `{"metadata":{"namespace":"account-` + accountID + `"},"spec":{"ec2InstanceMetadataHttpTokens":` + tt.value + `}}`
+			request := httptest.NewRequest(http.MethodPut, "/api/v0/nodepools/"+poolName, strings.NewReader(body))
+			request = request.WithContext(context.WithValue(request.Context(), middleware.ContextKeyAccountID, accountID))
+			request = mux.SetURLVars(request, map[string]string{"id": poolName})
+			response := httptest.NewRecorder()
+
+			handler.Update(response, request)
+
+			if response.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("Update() status = %d, want %d; body=%s", response.Code, http.StatusUnprocessableEntity, response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), "spec.ec2InstanceMetadataHttpTokens") {
+				t.Errorf("Update() response does not identify ec2InstanceMetadataHttpTokens: %s", response.Body.String())
+			}
+			if !strings.Contains(response.Body.String(), "immutable") {
+				t.Errorf("Update() response does not identify the field as immutable: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+func TestNodePoolHandlerUpdateAllowsUnchangedEC2InstanceMetadataHttpTokens(t *testing.T) {
+	const (
+		accountID = "123456789012"
+		poolName  = "pool-a"
+	)
+	object := &hyperfleetv1alpha1.NodePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       poolName,
+			Namespace:  "account-" + accountID,
+			Labels:     map[string]string{"hyperfleet.io/account-id": accountID},
+			Generation: 3,
+		},
+		Spec: hyperfleetv1alpha1.NodePoolSpec{
+			EC2InstanceMetadataHttpTokens: hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired,
+		},
+	}
+	handler := newNodePoolValidationTestHandler(t, object)
+	body := `{"metadata":{"namespace":"account-` + accountID + `"},"spec":{"ec2InstanceMetadataHttpTokens":"required"}}`
+	request := httptest.NewRequest(http.MethodPut, "/api/v0/nodepools/"+poolName, strings.NewReader(body))
+	request = request.WithContext(context.WithValue(request.Context(), middleware.ContextKeyAccountID, accountID))
+	request = mux.SetURLVars(request, map[string]string{"id": poolName})
+	response := httptest.NewRecorder()
+
+	handler.Update(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("Update() status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	stored, err := handler.db.GetNodePool(context.Background(), accountID, poolName)
+	if err != nil {
+		t.Fatalf("GetNodePool: %v", err)
+	}
+	if stored.Spec.EC2InstanceMetadataHttpTokens != hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired {
+		t.Errorf("stored ec2InstanceMetadataHttpTokens = %q, want %q", stored.Spec.EC2InstanceMetadataHttpTokens, hyperfleetv1alpha1.EC2InstanceMetadataHttpTokensRequired)
+	}
+	if stored.Generation != 3 {
+		t.Errorf("generation = %d, want 3 for an unchanged spec", stored.Generation)
 	}
 }
 

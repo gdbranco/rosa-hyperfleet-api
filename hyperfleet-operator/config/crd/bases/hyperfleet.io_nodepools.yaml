@@ -61,6 +61,17 @@ spec:
                 autoRepair:
                   description: AutoRepair controls whether unhealthy nodes are automatically replaced.
                   type: boolean
+                ec2InstanceMetadataHttpTokens:
+                  default: required
+                  description: |-
+                    EC2InstanceMetadataHttpTokens configures the HTTP token requirement for
+                    the EC2 instance metadata service. "required" enforces IMDSv2, while
+                    "optional" permits IMDSv1. If omitted when creating a NodePool, it defaults
+                    to "required".
+                  enum:
+                    - required
+                    - optional
+                  type: string
                 internalPoolId:
                   description: InternalPoolID is a platform-assigned unique identifier.
                   type: string
